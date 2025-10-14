@@ -3,7 +3,6 @@ resolver = "2"
 
 members = [
     "config",
-    "hal",
     "scheduler",
     "user_test",
     "base_task",
@@ -25,7 +24,6 @@ categories = ["os", "no-std"]
 
 
 [workspace.dependencies]
-hal = { path = "hal" }
 scheduler = { path = "scheduler" }
 vsched = { path = "vsched" }
 config = { path = "config" }

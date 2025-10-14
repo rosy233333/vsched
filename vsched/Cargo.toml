@@ -17,6 +17,6 @@ sched-rr = ["base_task/sched-rr"]
 sched-cfs = ["base_task/sched-cfs"]
 
 [dependencies]
-hal = { workspace = true }
+hal = { git = "https://github.com/rosy233333/vsched_hal.git" }
 config = { workspace = true }
 base_task = { workspace = true }

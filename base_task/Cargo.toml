@@ -24,7 +24,7 @@ tls = []
 [dependencies]
 cfg-if = "1.0"
 log = "0.4"
-hal = { workspace = true }
+hal = { git = "https://github.com/rosy233333/vsched_hal.git" }
 config = { workspace = true }
 memory_addr = { version = "0.4" }
 scheduler = { workspace = true }
