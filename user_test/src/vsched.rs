@@ -1,15 +1,13 @@
-use base_task::{BaseTaskRef, Scheduler, TaskExtRef, TaskState, WeakBaseTaskRef};
+use base_task::{PerCPU, TaskExtRef, TaskRef, TaskState};
 use config::AxCpuMask;
-use core::cell::UnsafeCell;
 use core::pin::Pin;
 use core::str::from_utf8;
 use core::task::{Context, Poll};
 use memmap2::MmapMut;
 use page_table_entry::MappingFlags;
 use std::cell::RefCell;
-use std::io::Read;
-use std::mem::MaybeUninit;
-use std::sync::Mutex;
+use std::mem::ManuallyDrop;
+use std::sync::{Arc, Mutex};
 use std::thread_local;
 use std::{collections::VecDeque, sync::atomic::AtomicUsize};
 pub use vsched_apis::*;
@@ -18,7 +16,7 @@ use xmas_elf::program::SegmentData;
 
 use crate::{Task, WaitQueue, WaitQueueGuard};
 
-const VSCHED: &[u8] = core::include_bytes!("../../libvsched.so");
+const VSCHED: &[u8] = include_bytes_aligned::include_bytes_aligned!(8, "../../libvsched.so");
 
 static CPU_ID_ALLOCATOR: AtomicUsize = AtomicUsize::new(0);
 
@@ -50,10 +48,8 @@ pub fn map_vsched() -> Result<Vsched, ()> {
         unsafe { vsched_map.as_ptr().add(VSCHED_DATA_SIZE + 0x40000) }
     );
     let vsched_so = &mut vsched_map[VSCHED_DATA_SIZE..];
-    #[allow(const_item_mutation)]
-    VSCHED.read(vsched_so).unwrap();
 
-    let vsched_elf = xmas_elf::ElfFile::new(vsched_so).expect("Error parsing app ELF file.");
+    let vsched_elf = xmas_elf::ElfFile::new(VSCHED).expect("Error parsing app ELF file.");
     if let Some(interp) = vsched_elf
         .program_iter()
         .find(|ph| ph.get_type() == Ok(xmas_elf::program::Type::Interp))
@@ -73,6 +69,15 @@ pub fn map_vsched() -> Result<Vsched, ()> {
     let segments = elf_parser::get_elf_segments(&vsched_elf, elf_base_addr);
     let relocate_pairs = elf_parser::get_relocate_pairs(&vsched_elf, elf_base_addr);
     for segment in segments {
+        if segment.size == 0 {
+            log::warn!(
+                "Segment with size 0 found, skipping: {:?}, {:#x}, {:?}",
+                segment.vaddr,
+                segment.size,
+                segment.flags
+            );
+            continue;
+        }
         log::debug!(
             "{:?}, {:#x}, {:?}",
             segment.vaddr,
@@ -86,11 +91,31 @@ pub fn map_vsched() -> Result<Vsched, ()> {
         if segment.flags.contains(MappingFlags::WRITE) {
             flag |= libc::PROT_WRITE;
         }
+        if let Some(data) = segment.data {
+            assert!(data.len() <= segment.size);
+            let src = data.as_ptr();
+            let dst = segment.vaddr.as_usize() as *mut u8;
+            let count = data.len();
+            unsafe {
+                core::ptr::copy_nonoverlapping(src, dst, count);
+                if segment.size > count {
+                    core::ptr::write_bytes(dst.add(count), 0, segment.size - count);
+                }
+            }
+        } else {
+            unsafe { core::ptr::write_bytes(segment.vaddr.as_usize() as *mut u8, 0, segment.size) };
+        }
+
         unsafe {
             if libc::mprotect(segment.vaddr.as_usize() as _, segment.size, flag)
                 == libc::MAP_FAILED as _
             {
-                log::error!("mprotect res failed");
+                log::error!(
+                    "mprotect res failed: addr: {:#x}, size: {}, prot: {}",
+                    segment.vaddr.as_usize(),
+                    segment.size,
+                    flag
+                );
                 return Err(());
             }
         };
@@ -111,6 +136,7 @@ pub fn map_vsched() -> Result<Vsched, ()> {
 
     unsafe { vsched_apis::init_vsched_vtable(elf_base_addr.unwrap() as _, &vsched_elf) };
 
+    log::info!("vsched mapped successfully");
     Ok(Vsched { map: vsched_map })
 }
 
@@ -120,10 +146,11 @@ fn gc_entry() {
         let n = exited_tasks.len();
         for _ in 0..n {
             if let Some(task) = exited_tasks.pop_front() {
-                if task.strong_count() == 1 {
-                    drop(task);
-                } else {
+                let task_arc = ManuallyDrop::into_inner(task.into_arc());
+                if Arc::strong_count(&task_arc) > 1 {
                     exited_tasks.push_back(task);
+                } else {
+                    drop(task_arc);
                 }
             }
         }
@@ -147,7 +174,7 @@ pub fn init_vsched() {
     vsched_apis::init_vsched(get_cpu_id(), idle_task, main_task);
     let gc_task = Task::new(gc_entry, "gc".into(), config::TASK_STACK_SIZE);
     gc_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    vsched_apis::spawn(gc_task);
+    vsched_apis::spawn(get_cpu_id(), gc_task);
 }
 
 pub fn init_vsched_secondary() {
@@ -171,7 +198,7 @@ pub fn blocked_resched(mut wq_guard: WaitQueueGuard) {
     vsched_apis::resched(get_cpu_id());
 }
 
-static EXITED_TASKS: Mutex<VecDeque<BaseTaskRef>> = Mutex::new(VecDeque::new());
+static EXITED_TASKS: Mutex<VecDeque<TaskRef>> = Mutex::new(VecDeque::new());
 static WAIT_FOR_EXIT: WaitQueue = WaitQueue::new();
 
 pub fn exit(exit_code: i32) -> ! {
@@ -185,7 +212,8 @@ pub fn exit(exit_code: i32) -> ! {
     } else {
         curr.set_state(base_task::TaskState::Exited);
         curr.task_ext().notify_exit(exit_code);
-        EXITED_TASKS.lock().unwrap().push_back(curr.clone());
+        // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
+        EXITED_TASKS.lock().unwrap().push_back(curr);
         WAIT_FOR_EXIT.notify_one(false);
     }
 
@@ -233,6 +261,7 @@ impl Future for YieldFuture {
             log::trace!("task yield: {}", curr.task_ext().id_name());
             assert!(curr.is_running());
             if vsched_apis::yield_f(get_cpu_id()) {
+                curr.set_state(TaskState::Ready);
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -296,7 +325,8 @@ impl Future for ExitFuture {
         curr.task_ext().notify_exit(exit_code);
 
         // Push current task to the `EXITED_TASKS` list, which will be consumed by the GC task.
-        EXITED_TASKS.lock().unwrap().push_back(curr.clone());
+        // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
+        EXITED_TASKS.lock().unwrap().push_back(curr);
         // Wake up the GC task to drop the exited tasks.
         WAIT_FOR_EXIT.notify_one(false);
         assert!(vsched_apis::resched_f(get_cpu_id()));
@@ -376,20 +406,3 @@ impl<'a> Drop for BlockedReschedFuture<'a> {
 const VSCHED_DATA_SIZE: usize = config::SMP
     * ((core::mem::size_of::<PerCPU>() + config::PAGES_SIZE_4K - 1)
         & (!(config::PAGES_SIZE_4K - 1)));
-
-#[allow(unused)]
-#[repr(C)]
-pub struct PerCPU {
-    /// The ID of the CPU this run queue is associated with.
-    pub cpu_id: usize,
-    /// The core scheduler of this run queue.
-    /// Since irq and preempt are preserved by the kernel guard hold by `AxRunQueueRef`,
-    /// we just use a simple raw spin lock here.
-    pub scheduler: Scheduler,
-
-    pub current_task: UnsafeCell<BaseTaskRef>,
-
-    pub idle_task: BaseTaskRef,
-    /// Stores the weak reference to the previous task that is running on this CPU.
-    pub prev_task: UnsafeCell<MaybeUninit<WeakBaseTaskRef>>,
-}

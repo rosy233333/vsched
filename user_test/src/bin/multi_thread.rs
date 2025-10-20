@@ -2,6 +2,7 @@ use std::sync::atomic::AtomicUsize;
 
 use user_test::*;
 fn main() {
+    env_logger::init();
     let vsched_map = map_vsched().unwrap();
     core::mem::forget(vsched_map);
     static BOOT_COUNT: AtomicUsize = AtomicUsize::new(1);
@@ -15,14 +16,16 @@ fn main() {
     while BOOT_COUNT.load(std::sync::atomic::Ordering::Relaxed) < config::SMP {
         core::hint::spin_loop();
     }
-    let task_handle = vsched_apis::spawn(Task::new(
+    let task = Task::new(
         || {
             println!("into spawned task inner main thread spawned");
         },
         "main spawn_test".into(),
         config::TASK_STACK_SIZE,
-    ));
-    task_handle.task_ext().join().unwrap();
+    );
+    vsched_apis::spawn(get_cpu_id(), Task::clone_increase_sc(&task));
+    task.task_ext().join().unwrap();
+    Task::drop_decrease_sc(task);
     println!("main task wait ok");
     exit(0)
 }
