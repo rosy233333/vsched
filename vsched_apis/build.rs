@@ -98,13 +98,16 @@ fn build_vsched_api(out_path: PathBuf) {
             r#"
 pub fn {}{} {{
     if let Some(f) = unsafe {{ VSCHED_VTABLE.{} }} {{
-        f({})
+        log::trace!("calling {} at {{:#x}}", f as usize);
+        let res = f({});
+        log::trace!("calling {} finished");
+        res
     }} else {{
         panic!("{} is not initialized")
     }}
 }}
 "#,
-            name, args, name, fn_args, name
+            name, args, name, name, fn_args, name, name
         ));
     }
     // println!("apis: {:?}", apis);

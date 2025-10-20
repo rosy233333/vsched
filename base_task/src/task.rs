@@ -198,6 +198,9 @@ impl TaskInner {
     }
 
     /// Create a new task with the given entry function and stack size.
+    ///
+    /// - entry: 用户想要创建的任务函数
+    /// - task_entry: 任务真正的入口点，通常包含初始化、调用entry和清理等逻辑
     #[cfg(feature = "alloc")]
     pub fn new<F>(entry: F, task_entry: usize, name: String, stack_size: usize) -> Self
     where

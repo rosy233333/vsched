@@ -8,6 +8,7 @@ use core::mem::MaybeUninit;
 ///     offset requirement can make it work ok.
 #[inline(never)]
 #[unsafe(link_section = ".text.start")]
+#[unsafe(no_mangle)]
 pub fn get_data_base() -> usize {
     let pc = unsafe { hal::asm::get_pc() };
     const VSCHED_DATA_SIZE: usize = config::SMP * percpu_size_4k_aligned::<TaskInner>();

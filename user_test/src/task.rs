@@ -5,16 +5,17 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use core::sync::atomic::{AtomicBool, AtomicI32};
+use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
-use base_task::{BaseTask, BaseTaskRef, TaskInner, TaskStack, TaskState, WeakBaseTaskRef};
+use base_task::{AxTask, TaskInner, TaskRef, TaskStack, TaskState};
 
 pub use base_task::TaskExtRef;
 
 /// Task extended data for the monolithic kernel.
 pub struct TaskExt {
-    base: NonNull<BaseTask>,
+    base: NonNull<AxTask>,
     // 以下字段都需要在 TaskExt 中定义
     name: String,
     entry: Option<*mut dyn FnOnce()>,
@@ -167,30 +168,6 @@ base_task::def_task_ext!(TaskExt);
 
 pub struct Task;
 
-pub extern "C" fn task_clone(raw_ptr: *const BaseTask) {
-    unsafe {
-        let _arc_task = core::mem::ManuallyDrop::new(Arc::from_raw(raw_ptr));
-        let _ = core::mem::ManuallyDrop::new(_arc_task.clone());
-    }
-}
-
-pub extern "C" fn task_drop(raw_ptr: *const BaseTask) {
-    let _arc_task = unsafe { Arc::from_raw(raw_ptr) };
-    drop(_arc_task);
-}
-
-pub extern "C" fn task_strong_count(raw_ptr: *const BaseTask) -> usize {
-    let _arc_task = unsafe { std::mem::ManuallyDrop::new(Arc::from_raw(raw_ptr)) };
-    let count = Arc::strong_count(&_arc_task);
-    count
-}
-
-pub extern "C" fn task_weak_clone(raw_ptr: *const BaseTask) -> WeakBaseTaskRef {
-    let _arc_task = unsafe { std::mem::ManuallyDrop::new(Arc::from_raw(raw_ptr)) };
-    let weak_task_ptr = Arc::downgrade(&_arc_task).into_raw() as _;
-    WeakBaseTaskRef::new(NonNull::new(weak_task_ptr).unwrap())
-}
-
 impl Task {
     // /// Wait for the task to exit, and return the exit code.
     // ///
@@ -203,86 +180,73 @@ impl Task {
     //     Some(self.task_ext_().exit_code.load(Ordering::Acquire))
     // }
 
-    pub fn new<F>(entry: F, name: String, stack_size: usize) -> BaseTaskRef
+    pub fn new<F>(entry: F, name: String, stack_size: usize) -> TaskRef
     where
         F: FnOnce() + Send + 'static,
     {
-        let mut t = TaskInner::new();
-        t.init_task_ext(TaskExt::new(entry, name));
-        unsafe {
-            *t.kernel_stack() = Some(TaskStack::alloc(stack_size));
-        }
-        let kstack_top = t.kernel_stack_top().unwrap();
-        t.ctx_mut().init(task_entry as usize, kstack_top);
-        let arc_task = Arc::new(BaseTask::new(t));
+        let mut t = TaskInner::new(entry, task_entry as usize, name.clone(), stack_size);
+        t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
+        let arc_task = Arc::new(AxTask::new(t));
         let task_raw_ptr = Arc::into_raw(arc_task);
         unsafe {
             (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
                 NonNull::new(task_raw_ptr as _).unwrap();
         }
 
-        BaseTaskRef::new(
-            NonNull::new(task_raw_ptr as _).unwrap(),
-            task_clone,
-            task_weak_clone,
-            task_drop,
-            task_strong_count,
-        )
+        TaskRef::new(task_raw_ptr)
     }
 
-    pub fn new_f<F>(future: F, name: String) -> BaseTaskRef
+    pub fn new_f<F>(future: F, name: String) -> TaskRef
     where
-        F: Future + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        let mut t = TaskInner::new();
+        let mut t = TaskInner::new_f(
+            async move {
+                future.await;
+                exit_f(0).await;
+            },
+            name.clone(),
+        );
         t.set_alloc_stack_fn(alloc_stack_for_coroutine as usize);
         t.set_coroutine_schedule(coroutine_schedule as usize);
-        t.init_task_ext(TaskExt::new_f(future, name));
-        let arc_task = Arc::new(BaseTask::new(t));
+        t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
+        let arc_task = Arc::new(AxTask::new(t));
         let task_raw_ptr = Arc::into_raw(arc_task);
         unsafe {
             (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
                 NonNull::new(task_raw_ptr as _).unwrap();
         }
 
-        BaseTaskRef::new(
-            NonNull::new(task_raw_ptr as _).unwrap(),
-            task_clone,
-            task_weak_clone,
-            task_drop,
-            task_strong_count,
-        )
+        TaskRef::new(task_raw_ptr)
     }
 
-    pub fn new_init(name: String) -> BaseTaskRef {
-        let mut t = TaskInner::new();
-        t.set_init(true);
-        t.set_on_cpu(true);
-        if name == "idle" {
-            t.set_idle(true);
-        }
+    pub fn new_init(name: String) -> TaskRef {
+        let mut t = TaskInner::new_init(name.clone());
         t.set_state(TaskState::Running);
-        t.init_task_ext(TaskExt::new_init(name));
-        let arc_task = Arc::new(BaseTask::new(t));
+        t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
+        let arc_task = Arc::new(AxTask::new(t));
         let task_raw_ptr = Arc::into_raw(arc_task);
         unsafe {
             (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
                 NonNull::new(task_raw_ptr as _).unwrap();
         }
 
-        BaseTaskRef::new(
-            NonNull::new(task_raw_ptr as _).unwrap(),
-            task_clone,
-            task_weak_clone,
-            task_drop,
-            task_strong_count,
-        )
+        TaskRef::new(task_raw_ptr)
+    }
+
+    pub fn clone_increase_sc(task: &TaskRef) -> TaskRef {
+        let task_clone = ManuallyDrop::into_inner(task.into_arc().clone());
+        TaskRef::new(Arc::into_raw(task_clone))
+    }
+
+    pub fn drop_decrease_sc(task: TaskRef) {
+        let inner = ManuallyDrop::into_inner(task.into_arc());
+        drop(inner);
     }
 }
 
 extern "C" fn task_entry() {
-    let prev_task = vsched_apis::prev_task(get_cpu_id());
-    prev_task.set_on_cpu(false);
+    vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
     let task = vsched_apis::current(get_cpu_id());
     if let Some(entry) = task.task_ext().entry {
         unsafe { Box::from_raw(entry)() };
@@ -317,21 +281,20 @@ fn recycle_stack_of_coroutine(stack: TaskStack) {
 extern "C" fn coroutine_schedule() {
     use core::task::{Context, Waker};
     loop {
-        vsched_apis::prev_task(get_cpu_id()).set_on_cpu(false);
+        vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
         let curr = vsched_apis::current(get_cpu_id());
-        let fut = unsafe {
-            curr.task_ext()
-                .future
-                .as_mut_unchecked()
-                .as_mut()
-                .expect("The task should be a coroutine")
-        };
+        let fut = curr
+            .inner()
+            .future()
+            .as_mut()
+            .expect("The task should be a coroutine");
         let _res = fut.as_mut().poll(&mut cx);
+        // 该行要求协程在返回Pending或完全结束时，都需要将state从Running切换到其它状态（Ready, Blocked, Exited）。
         assert!(
             !curr.is_running(),
-            "{} is not running",
+            "{} is still running",
             curr.task_ext().id_name()
         );
         let prev_task = curr;

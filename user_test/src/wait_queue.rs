@@ -1,7 +1,7 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-use base_task::{BaseTaskRef, TaskExtRef};
+use base_task::{TaskExtRef, TaskRef};
 use std::sync::{Mutex, MutexGuard};
 
 use crate::{BlockedReschedFuture, get_cpu_id};
@@ -31,10 +31,10 @@ use crate::{BlockedReschedFuture, get_cpu_id};
 /// assert_eq!(VALUE.load(Ordering::Acquire), 1);
 /// ```
 pub struct WaitQueue {
-    pub(crate) queue: Mutex<VecDeque<BaseTaskRef>>,
+    pub(crate) queue: Mutex<VecDeque<TaskRef>>,
 }
 
-pub(crate) type WaitQueueGuard<'a> = MutexGuard<'a, VecDeque<BaseTaskRef>>;
+pub(crate) type WaitQueueGuard<'a> = MutexGuard<'a, VecDeque<TaskRef>>;
 
 impl WaitQueue {
     /// Creates an empty wait queue.
@@ -53,7 +53,7 @@ impl WaitQueue {
 
     /// Cancel events by removing the task from the wait queue.
     /// If `from_timer_list` is true, try to remove the task from the timer list.
-    fn cancel_events(&self, curr: &BaseTaskRef, _from_timer_list: bool) {
+    fn cancel_events(&self, curr: &TaskRef, _from_timer_list: bool) {
         // A task can be wake up only one events (timer or `notify()`), remove
         // the event from another queue.
         if curr.task_ext().in_wait_queue() {
@@ -284,9 +284,9 @@ impl WaitQueue {
     ///
     /// If `resched` is true, the current task will be preempted when the
     /// preemption is enabled.
-    pub fn notify_task(&mut self, resched: bool, task: &BaseTaskRef) -> bool {
+    pub fn notify_task(&mut self, resched: bool, task: &TaskRef) -> bool {
         let mut wq = self.queue.lock().unwrap();
-        if let Some(index) = wq.iter().position(|t| BaseTaskRef::ptr_eq(t, task)) {
+        if let Some(index) = wq.iter().position(|t| TaskRef::ptr_eq(t, task)) {
             unblock_one_task(wq.remove(index).unwrap(), resched);
             true
         } else {
@@ -328,7 +328,7 @@ impl WaitQueue {
     }
 }
 
-fn unblock_one_task(task: BaseTaskRef, resched: bool) {
+fn unblock_one_task(task: TaskRef, resched: bool) {
     // Mark task as not in wait queue.
     task.task_ext().set_in_wait_queue(false);
     log::debug!(
@@ -339,5 +339,5 @@ fn unblock_one_task(task: BaseTaskRef, resched: bool) {
     // Select run queue by the CPU set of the task.
     // Use `NoOp` kernel guard here because the function is called with holding the
     // lock of wait queue, where the irq and preemption are disabled.
-    vsched_apis::unblock_task(task, resched, get_cpu_id());
+    vsched_apis::unblock_task(task, resched, get_cpu_id(), get_cpu_id());
 }
