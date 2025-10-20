@@ -261,7 +261,6 @@ impl Future for YieldFuture {
             log::trace!("task yield: {}", curr.task_ext().id_name());
             assert!(curr.is_running());
             if vsched_apis::yield_f(get_cpu_id()) {
-                curr.set_state(TaskState::Ready);
                 Poll::Pending
             } else {
                 Poll::Ready(())
