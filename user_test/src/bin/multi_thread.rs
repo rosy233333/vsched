@@ -1,5 +1,6 @@
 use std::sync::atomic::AtomicUsize;
 
+use task_management::task_inner_ext::ext_to_base;
 use user_test::*;
 fn main() {
     env_logger::init();
@@ -23,8 +24,8 @@ fn main() {
         "main spawn_test".into(),
         config::TASK_STACK_SIZE,
     );
-    vsched_apis::spawn(get_cpu_id(), Task::clone_increase_sc(&task));
-    task.task_ext().join().unwrap();
+    vsched_apis::spawn(get_cpu_id(), ext_to_base(Task::clone_increase_sc(&task)));
+    task.join().unwrap();
     Task::drop_decrease_sc(task);
     println!("main task wait ok");
     exit(0)

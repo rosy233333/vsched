@@ -21,6 +21,7 @@ vsched_apis = { workspace = true }
 config = { workspace = true }
 base_task = { workspace = true }
 utils = { workspace = true }
+task_management = { workspace = true }
 memmap2 = "0.9.5"
 elf_parser = { git = "https://github.com/rosy233333/elf_parser.git" }
 xmas-elf = "0.9.0"

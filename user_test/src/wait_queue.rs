@@ -1,8 +1,9 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-use base_task::{TaskExtRef, TaskRef};
+// use base_task::{TaskExtRef, TaskRef};
 use std::sync::{Mutex, MutexGuard};
+use task_management::task_inner_ext::{TaskRef, base_to_ext, ext_to_base};
 
 use crate::{BlockedReschedFuture, get_cpu_id};
 
@@ -56,17 +57,17 @@ impl WaitQueue {
     fn cancel_events(&self, curr: &TaskRef, _from_timer_list: bool) {
         // A task can be wake up only one events (timer or `notify()`), remove
         // the event from another queue.
-        if curr.task_ext().in_wait_queue() {
+        if curr.in_wait_queue() {
             // wake up by timer (timeout).
             self.queue.lock().unwrap().retain(|t| !curr.ptr_eq(t));
-            curr.task_ext().set_in_wait_queue(false);
+            curr.set_in_wait_queue(false);
         }
 
         // Try to cancel a timer event from timer lists.
         // Just mark task's current timer ticket ID as expired.
         #[cfg(feature = "irq")]
         if _from_timer_list {
-            curr.task_ext().timer_ticket_expired();
+            curr.timer_ticket_expired();
             // Note:
             //  this task is still not removed from timer list of target CPU,
             //  which may cause some redundant timer events because it still needs to
@@ -79,7 +80,7 @@ impl WaitQueue {
     /// notifies it.
     pub fn wait(&self) {
         let wq = self.queue.lock().unwrap();
-        let curr = vsched_apis::current(get_cpu_id());
+        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
         crate::vsched::blocked_resched(wq);
         self.cancel_events(&curr, false);
     }
@@ -87,7 +88,7 @@ impl WaitQueue {
     /// Blocks the current coroutine task and put it into the wait queue, until other task
     /// notifies it.
     pub async fn wait_f(&self) {
-        let curr = vsched_apis::current(get_cpu_id());
+        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
         BlockedReschedFuture::new(self).await;
         self.cancel_events(&curr, false);
     }
@@ -101,7 +102,7 @@ impl WaitQueue {
     where
         F: Fn() -> bool,
     {
-        let curr = vsched_apis::current(get_cpu_id());
+        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
         loop {
             let wq = self.queue.lock().unwrap();
             if condition() {
@@ -122,7 +123,7 @@ impl WaitQueue {
     where
         F: Fn() -> bool,
     {
-        let curr = vsched_apis::current(get_cpu_id());
+        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
         loop {
             if condition() {
                 break;
@@ -330,14 +331,14 @@ impl WaitQueue {
 
 fn unblock_one_task(task: TaskRef, resched: bool) {
     // Mark task as not in wait queue.
-    task.task_ext().set_in_wait_queue(false);
+    task.set_in_wait_queue(false);
     log::debug!(
         "unblock task {:?}, is on cpu {}",
-        task.task_ext().name(),
+        task.name(),
         task.on_cpu()
     );
     // Select run queue by the CPU set of the task.
     // Use `NoOp` kernel guard here because the function is called with holding the
     // lock of wait queue, where the irq and preemption are disabled.
-    vsched_apis::unblock_task(task, resched, get_cpu_id(), get_cpu_id());
+    vsched_apis::unblock_task(ext_to_base(task), resched, get_cpu_id(), get_cpu_id());
 }

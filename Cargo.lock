@@ -458,6 +458,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "task_management"
+version = "0.0.0"
+dependencies = [
+ "base_task",
+ "config",
+ "crossbeam",
+ "kspin",
+ "log",
+ "scheduler",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -497,6 +509,7 @@ dependencies = [
  "log",
  "memmap2",
  "page_table_entry",
+ "task_management",
  "utils",
  "vsched_apis",
  "xmas-elf",

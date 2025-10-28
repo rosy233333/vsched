@@ -1,4 +1,5 @@
-use base_task::{PerCPU, TaskExtRef, TaskRef, TaskState};
+// use base_task::{PerCPU, TaskExtRef, TaskRef, TaskState};
+use base_task::{PerCPU, TaskState};
 use config::AxCpuMask;
 use core::pin::Pin;
 use core::str::from_utf8;
@@ -10,6 +11,7 @@ use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
 use std::thread_local;
 use std::{collections::VecDeque, sync::atomic::AtomicUsize};
+use task_management::task_inner_ext::{TaskRef, base_to_ext, ext_to_base};
 pub use vsched_apis::*;
 
 use xmas_elf::program::SegmentData;
@@ -171,30 +173,34 @@ pub fn init_vsched() {
     main_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
     let idle_task = Task::new(|| run_idle(), "idle".into(), config::TASK_STACK_SIZE);
     idle_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    vsched_apis::init_vsched(get_cpu_id(), idle_task, main_task);
+    vsched_apis::init_vsched(get_cpu_id(), ext_to_base(idle_task), ext_to_base(main_task));
     let gc_task = Task::new(gc_entry, "gc".into(), config::TASK_STACK_SIZE);
     gc_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    vsched_apis::spawn(get_cpu_id(), gc_task);
+    vsched_apis::spawn(get_cpu_id(), ext_to_base(gc_task));
 }
 
 pub fn init_vsched_secondary() {
     CPU_ID.set(CPU_ID_ALLOCATOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     let idle_task = Task::new_init("idle".into());
     idle_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    vsched_apis::init_vsched(get_cpu_id(), idle_task.clone(), idle_task);
+    vsched_apis::init_vsched(
+        get_cpu_id(),
+        ext_to_base(idle_task.clone()),
+        ext_to_base(idle_task),
+    );
 }
 
 pub fn blocked_resched(mut wq_guard: WaitQueueGuard) {
-    let curr = vsched_apis::current(get_cpu_id());
+    let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
     assert!(curr.is_running());
     assert!(!curr.is_idle());
 
     curr.set_state(base_task::TaskState::Blocked);
-    curr.task_ext().set_in_wait_queue(true);
+    curr.set_in_wait_queue(true);
     wq_guard.push_back(curr.clone());
     drop(wq_guard);
 
-    log::debug!("task blocked {:?}", curr.task_ext().name());
+    log::debug!("task blocked {:?}", curr.name());
     vsched_apis::resched(get_cpu_id());
 }
 
@@ -202,16 +208,16 @@ static EXITED_TASKS: Mutex<VecDeque<TaskRef>> = Mutex::new(VecDeque::new());
 static WAIT_FOR_EXIT: WaitQueue = WaitQueue::new();
 
 pub fn exit(exit_code: i32) -> ! {
-    let curr = vsched_apis::current(get_cpu_id());
+    let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
     assert!(curr.is_running());
     assert!(!curr.is_idle());
-    log::debug!("{:?} is exited", curr.task_ext().name());
+    log::debug!("{:?} is exited", curr.name());
     if curr.is_init() {
         EXITED_TASKS.lock().unwrap().clear();
         unsafe { libc::exit(0) };
     } else {
         curr.set_state(base_task::TaskState::Exited);
-        curr.task_ext().notify_exit(exit_code);
+        curr.notify_exit(exit_code);
         // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
         EXITED_TASKS.lock().unwrap().push_back(curr);
         WAIT_FOR_EXIT.notify_one(false);
@@ -257,8 +263,8 @@ impl Future for YieldFuture {
         let Self { flag } = self.get_mut();
         if !(*flag) {
             *flag = !*flag;
-            let curr = vsched_apis::current(get_cpu_id());
-            log::trace!("task yield: {}", curr.task_ext().id_name());
+            let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+            log::trace!("task yield: {}", curr.id_name());
             assert!(curr.is_running());
             if vsched_apis::yield_f(get_cpu_id()) {
                 Poll::Pending
@@ -310,18 +316,14 @@ impl Future for ExitFuture {
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { exit_code } = self.get_mut();
         let exit_code = *exit_code;
-        let curr = vsched_apis::current(get_cpu_id());
-        log::debug!(
-            "task exit: {}, exit_code={}",
-            curr.task_ext().id_name(),
-            exit_code
-        );
+        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+        log::debug!("task exit: {}, exit_code={}", curr.id_name(), exit_code);
         assert!(curr.is_running(), "task is not running: {:?}", curr.state());
         assert!(!curr.is_idle());
         curr.set_state(TaskState::Exited);
 
         // Notify the joiner task.
-        curr.task_ext().notify_exit(exit_code);
+        curr.notify_exit(exit_code);
 
         // Push current task to the `EXITED_TASKS` list, which will be consumed by the GC task.
         // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
@@ -367,7 +369,7 @@ impl<'a> Future for BlockedReschedFuture<'a> {
         if !(*flag) {
             *flag = !*flag;
             let mut wq_guard = wq.queue.lock().unwrap();
-            let curr = vsched_apis::current(get_cpu_id());
+            let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
             assert!(curr.is_running());
             assert!(!curr.is_idle());
             // we must not block current task with preemption disabled.
@@ -379,7 +381,7 @@ impl<'a> Future for BlockedReschedFuture<'a> {
             // Mark the task as blocked, this has to be done before adding it to the wait queue
             // while holding the lock of the wait queue.
             curr.set_state(TaskState::Blocked);
-            curr.task_ext().set_in_wait_queue(true);
+            curr.set_in_wait_queue(true);
 
             wq_guard.push_back(curr.clone());
             // Drop the lock of wait queue explictly.
@@ -389,7 +391,7 @@ impl<'a> Future for BlockedReschedFuture<'a> {
             // Note that the state may have been set as `Ready` in `unblock_task()`,
             // see `unblock_task()` for details.
 
-            log::debug!("task block: {}", curr.task_ext().id_name());
+            log::debug!("task block: {}", curr.id_name());
             assert!(vsched_apis::resched_f(get_cpu_id()));
             Poll::Pending
         } else {

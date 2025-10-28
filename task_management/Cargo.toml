@@ -1,0 +1,29 @@
+[package]
+name = "task_management"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+sched-fifo = ["scheduler/sched-fifo"]
+sched-rr = ["scheduler/sched-rr"]
+sched-cfs = ["scheduler/sched-cfs"]
+
+irq = ["base_task/irq"]
+preempt = ["base_task/preempt"]
+smp = ["base_task/smp"]
+tls = ["base_task/tls"]
+
+[dependencies]
+base_task = { workspace = true }
+scheduler = { workspace = true }
+crossbeam = { version = "0.8", default-features = false }
+config = { workspace = true }
+log = "0.4"
+kspin = { version = "0.1" }

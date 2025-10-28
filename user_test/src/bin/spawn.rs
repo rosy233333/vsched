@@ -1,3 +1,4 @@
+use task_management::task_inner_ext::ext_to_base;
 use user_test::*;
 fn main() {
     env_logger::init();
@@ -9,13 +10,13 @@ fn main() {
     for _ in 0..(config::RQ_CAP - 2) {
         vsched_apis::spawn(
             get_cpu_id(),
-            Task::new(
+            ext_to_base(Task::new(
                 || {
                     println!("into spawned task inner");
                 },
                 "spawn_test".into(),
                 config::TASK_STACK_SIZE,
-            ),
+            )),
         );
     }
     println!("spawn test ok");

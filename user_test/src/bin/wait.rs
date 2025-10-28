@@ -1,3 +1,4 @@
+use task_management::task_inner_ext::ext_to_base;
 use user_test::*;
 fn main() {
     env_logger::init();
@@ -22,14 +23,14 @@ fn main() {
         "task__2".into(),
         config::TASK_STACK_SIZE,
     );
-    vsched_apis::spawn(get_cpu_id(), Task::clone_increase_sc(&task2));
-    vsched_apis::spawn(get_cpu_id(), Task::clone_increase_sc(&task1));
+    vsched_apis::spawn(get_cpu_id(), ext_to_base(Task::clone_increase_sc(&task2)));
+    vsched_apis::spawn(get_cpu_id(), ext_to_base(Task::clone_increase_sc(&task1)));
 
     vsched_apis::yield_now(get_cpu_id());
 
     println!("back to idle task");
-    task1.task_ext().join();
-    task2.task_ext().join();
+    task1.join();
+    task2.join();
     Task::drop_decrease_sc(task1);
     Task::drop_decrease_sc(task2);
     exit(0)

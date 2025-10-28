@@ -39,7 +39,7 @@ pub enum TaskState {
     Exited = 4,
 }
 
-#[cfg(not(feature = "alloc"))]
+// #[cfg(not(feature = "alloc"))]
 #[repr(C)]
 pub struct TaskInner {
     alloc_stack: Option<usize>,
@@ -66,33 +66,33 @@ pub struct TaskInner {
     ctx: UnsafeCell<TaskContext>,
 }
 
-#[cfg(feature = "alloc")]
-#[repr(C)]
-pub struct TaskInner {
-    alloc_stack: Option<usize>,
-    coroutine_schedule: Option<usize>,
-    id: TaskId,
-    is_idle: bool,
-    is_init: bool,
-    state: AtomicU8,
-    /// Used to indicate whether the task is running on a CPU.
-    // #[cfg(feature = "smp")]
-    on_cpu: AtomicBool,
-    /// Mark whether the task is in the wait queue.
-    in_wait_queue: AtomicBool,
-    /// A ticket ID used to identify the timer event.
-    /// Set by `set_timer_ticket()` when creating a timer event in `set_alarm_wakeup()`,
-    /// expired by setting it as zero in `timer_ticket_expired()`, which is called by `cancel_events()`.
-    // #[cfg(feature = "irq")]
-    timer_ticket_id: AtomicU64,
-    // #[cfg(feature = "preempt")]
-    need_resched: AtomicBool,
-    // #[cfg(feature = "preempt")]
-    preempt_disable_count: AtomicUsize,
-    kstack: UnsafeCell<Option<TaskStack>>,
-    ctx: UnsafeCell<TaskContext>,
-    ext: TaskInnerExt,
-}
+// #[cfg(feature = "alloc")]
+// #[repr(C)]
+// pub struct TaskInner {
+//     alloc_stack: Option<usize>,
+//     coroutine_schedule: Option<usize>,
+//     id: TaskId,
+//     is_idle: bool,
+//     is_init: bool,
+//     state: AtomicU8,
+//     /// Used to indicate whether the task is running on a CPU.
+//     // #[cfg(feature = "smp")]
+//     on_cpu: AtomicBool,
+//     /// Mark whether the task is in the wait queue.
+//     in_wait_queue: AtomicBool,
+//     /// A ticket ID used to identify the timer event.
+//     /// Set by `set_timer_ticket()` when creating a timer event in `set_alarm_wakeup()`,
+//     /// expired by setting it as zero in `timer_ticket_expired()`, which is called by `cancel_events()`.
+//     // #[cfg(feature = "irq")]
+//     timer_ticket_id: AtomicU64,
+//     // #[cfg(feature = "preempt")]
+//     need_resched: AtomicBool,
+//     // #[cfg(feature = "preempt")]
+//     preempt_disable_count: AtomicUsize,
+//     kstack: UnsafeCell<Option<TaskStack>>,
+//     ctx: UnsafeCell<TaskContext>,
+//     ext: TaskInnerExt,
+// }
 
 #[cfg(feature = "alloc")]
 #[repr(C)]
@@ -111,7 +111,7 @@ pub struct TaskInnerExt {
 }
 
 impl TaskId {
-    #[cfg(feature = "alloc")]
+    // #[cfg(feature = "alloc")]
     fn new() -> Self {
         static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
         Self(ID_COUNTER.fetch_add(1, Ordering::Relaxed))
@@ -141,11 +141,11 @@ unsafe impl Sync for TaskInner {}
 
 impl TaskInner {
     #[cfg(feature = "alloc")]
-    fn new_common(id: TaskId, name: String) -> Self {
+    pub fn new_common() -> Self {
         Self {
             alloc_stack: None,
             coroutine_schedule: None,
-            id,
+            id: TaskId::new(),
             is_idle: false,
             is_init: false,
             state: AtomicU8::new(TaskState::Ready as u8),
@@ -163,17 +163,6 @@ impl TaskInner {
             ctx: UnsafeCell::new(TaskContext::new()),
             #[cfg(feature = "tls")]
             tls: TlsArea::alloc(),
-            ext: TaskInnerExt {
-                name,
-                exit_code: AtomicI32::new(0),
-                wait_for_exit: WaitQueue::new(),
-                entry: None,
-                cpumask: AtomicCell::new(AxCpuMask::full()),
-                // #[cfg(feature = "tls")]
-                // tls: TlsArea,
-                future: UnsafeCell::new(None),
-                task_ext: TaskExt::empty(),
-            },
         }
     }
 
@@ -186,14 +175,12 @@ impl TaskInner {
     /// And there is no need to set the `entry`, `kstack` or `tls` fields, as
     /// they will be filled automatically when the task is switches out.
     #[cfg(feature = "alloc")]
-    pub fn new_init(name: String) -> Self {
-        let mut t = Self::new_common(TaskId::new(), name);
+    pub fn new_init(is_idle: bool) -> Self {
+        let mut t = Self::new_common();
         t.is_init = true;
         // #[cfg(feature = "smp")]
         t.set_on_cpu(true);
-        if t.ext.name == "idle" {
-            t.is_idle = true;
-        }
+        t.is_idle = is_idle;
         t
     }
 
@@ -202,12 +189,8 @@ impl TaskInner {
     /// - entry: 用户想要创建的任务函数
     /// - task_entry: 任务真正的入口点，通常包含初始化、调用entry和清理等逻辑
     #[cfg(feature = "alloc")]
-    pub fn new<F>(entry: F, task_entry: usize, name: String, stack_size: usize) -> Self
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        let mut t = Self::new_common(TaskId::new(), name);
-        debug!("new task: {}", t.id_name());
+    pub fn new(task_entry: usize, is_idle: bool, stack_size: usize) -> Self {
+        let mut t = Self::new_common();
         let kstack = TaskStack::alloc(align_up_4k(stack_size));
 
         // #[cfg(feature = "tls")]
@@ -215,40 +198,37 @@ impl TaskInner {
         // #[cfg(not(feature = "tls"))]
         // let tls = VirtAddr::from(0);
 
-        t.ext.entry = Some(Box::into_raw(Box::new(entry)));
         t.ctx_mut().init(task_entry as usize, kstack.top());
         t.kstack = UnsafeCell::new(Some(kstack));
-        if t.ext.name == "idle" {
-            t.is_idle = true;
-        }
+        t.is_idle = is_idle;
         t
     }
 
     /// Create a new task with the given future.
-    #[cfg(feature = "alloc")]
-    pub fn new_f<F>(future: F, name: String) -> Self
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let mut t = Self::new_common(TaskId::new(), name);
-        debug!("new task: {}", t.id_name());
-        t.ext.future = UnsafeCell::new(Some(Box::pin(future)));
-        t
-    }
+    // #[cfg(feature = "alloc")]
+    // pub fn new_f<F>(future: F, name: String) -> Self
+    // where
+    //     F: Future<Output = ()> + Send + 'static,
+    // {
+    //     let mut t = Self::new_common();
+    //     debug!("new task: {}", t.id_name());
+    //     t.ext.future = UnsafeCell::new(Some(Box::pin(future)));
+    //     t
+    // }
 
     /// Gets the entry of the task.
-    #[cfg(feature = "alloc")]
-    pub const fn entry(&self) -> &Option<*mut dyn FnOnce()> {
-        &self.ext.entry
-    }
+    // #[cfg(feature = "alloc")]
+    // pub const fn entry(&self) -> &Option<*mut dyn FnOnce()> {
+    //     &self.ext.entry
+    // }
 
-    /// Gets the future of the task.
-    #[cfg(feature = "alloc")]
-    pub const fn future(
-        &self,
-    ) -> &mut Option<core::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>> {
-        unsafe { self.ext.future.as_mut_unchecked() }
-    }
+    // /// Gets the future of the task.
+    // #[cfg(feature = "alloc")]
+    // pub const fn future(
+    //     &self,
+    // ) -> &mut Option<core::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>> {
+    //     unsafe { self.ext.future.as_mut_unchecked() }
+    // }
 
     /// Gets the ID of the task.
     pub const fn id(&self) -> TaskId {
@@ -256,50 +236,50 @@ impl TaskInner {
     }
 
     /// Gets the name of the task.
-    #[cfg(feature = "alloc")]
-    pub fn name(&self) -> &str {
-        self.ext.name.as_str()
-    }
+    // #[cfg(feature = "alloc")]
+    // pub fn name(&self) -> &str {
+    //     self.ext.name.as_str()
+    // }
 
-    /// Get a combined string of the task ID and name.
-    #[cfg(feature = "alloc")]
-    pub fn id_name(&self) -> alloc::string::String {
-        alloc::format!("Task({}, {:?})", self.id.as_u64(), self.ext.name)
-    }
-
-    /// Wait for the task to exit, and return the exit code.
-    ///
-    /// It will return immediately if the task has already exited (but not dropped).
-    #[cfg(feature = "alloc")]
-    pub fn join(&self) -> Option<i32> {
-        unsafe extern "Rust" {
-            fn join(task: &TaskInner);
-        }
-        unsafe {
-            join(self);
-        }
-        Some(self.exit_code())
-    }
+    // /// Get a combined string of the task ID and name.
+    // #[cfg(feature = "alloc")]
+    // pub fn id_name(&self) -> alloc::string::String {
+    //     alloc::format!("Task({}, {:?})", self.id.as_u64(), self.ext.name)
+    // }
 
     /// Wait for the task to exit, and return the exit code.
     ///
     /// It will return immediately if the task has already exited (but not dropped).
-    #[cfg(feature = "alloc")]
-    pub async fn join_f(&self) -> Option<i32> {
-        unsafe extern "C" {
-            static JOIN_FUTURE: usize;
-        }
-        use alloc::boxed::Box;
-        use core::{future::Future, pin::Pin};
-        type BoxJoinFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+    // #[cfg(feature = "alloc")]
+    // pub fn join(&self) -> Option<i32> {
+    //     unsafe extern "Rust" {
+    //         fn join(task: &TaskInner);
+    //     }
+    //     unsafe {
+    //         join(self);
+    //     }
+    //     Some(self.exit_code())
+    // }
 
-        unsafe {
-            let join_fut: fn(task: &TaskInner) -> BoxJoinFuture = core::mem::transmute(JOIN_FUTURE);
-            let join_fut = join_fut(self);
-            join_fut.await
-        }
-        Some(self.exit_code())
-    }
+    /// Wait for the task to exit, and return the exit code.
+    ///
+    /// It will return immediately if the task has already exited (but not dropped).
+    // #[cfg(feature = "alloc")]
+    // pub async fn join_f(&self) -> Option<i32> {
+    //     unsafe extern "C" {
+    //         static JOIN_FUTURE: usize;
+    //     }
+    //     use alloc::boxed::Box;
+    //     use core::{future::Future, pin::Pin};
+    //     type BoxJoinFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+
+    //     unsafe {
+    //         let join_fut: fn(task: &TaskInner) -> BoxJoinFuture = core::mem::transmute(JOIN_FUTURE);
+    //         let join_fut = join_fut(self);
+    //         join_fut.await
+    //     }
+    //     Some(self.exit_code())
+    // }
 
     /// Returns the pointer to the user-defined task extended data.
     ///
@@ -310,23 +290,23 @@ impl TaskInner {
     ///
     /// [`TaskExtRef::task_ext`]: crate::task_ext::TaskExtRef::task_ext
     /// [`TaskExtMut::task_ext_mut`]: crate::task_ext::TaskExtMut::task_ext_mut
-    #[cfg(feature = "alloc")]
-    pub unsafe fn task_ext_ptr(&self) -> *mut u8 {
-        self.ext.task_ext.as_ptr()
-    }
+    // #[cfg(feature = "alloc")]
+    // pub unsafe fn task_ext_ptr(&self) -> *mut u8 {
+    //     self.ext.task_ext.as_ptr()
+    // }
 
     /// Initialize the user-defined task extended data.
     ///
     /// Returns a reference to the task extended data if it has not been
     /// initialized yet (empty), otherwise returns [`None`].
-    #[cfg(feature = "alloc")]
-    pub fn init_task_ext<T: Sized>(&mut self, data: T) -> Option<&T> {
-        if self.ext.task_ext.is_empty() {
-            self.ext.task_ext.write(data).map(|data| &*data)
-        } else {
-            None
-        }
-    }
+    // #[cfg(feature = "alloc")]
+    // pub fn init_task_ext<T: Sized>(&mut self, data: T) -> Option<&T> {
+    //     if self.ext.task_ext.is_empty() {
+    //         self.ext.task_ext.write(data).map(|data| &*data)
+    //     } else {
+    //         None
+    //     }
+    // }
 
     /// Setup the TaskStack alloc fn.
     pub fn set_alloc_stack_fn(&mut self, alloc_fn: usize) {
@@ -378,42 +358,42 @@ impl TaskInner {
         }
     }
 
-    /// Gets the cpu affinity mask of the task.
-    ///
-    /// Returns the cpu affinity mask of the task in type [`AxCpuMask`].
-    #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn cpumask(&self) -> AxCpuMask {
-        self.ext.cpumask.load()
-    }
+    // /// Gets the cpu affinity mask of the task.
+    // ///
+    // /// Returns the cpu affinity mask of the task in type [`AxCpuMask`].
+    // #[cfg(feature = "alloc")]
+    // #[inline]
+    // pub fn cpumask(&self) -> AxCpuMask {
+    //     self.ext.cpumask.load()
+    // }
 
-    /// Sets the cpu affinity mask of the task.
-    ///
-    /// # Arguments
-    /// `cpumask` - The cpu affinity mask to be set in type [`AxCpuMask`].
-    #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn set_cpumask(&self, cpumask: AxCpuMask) {
-        self.ext.cpumask.store(cpumask);
-    }
+    // /// Sets the cpu affinity mask of the task.
+    // ///
+    // /// # Arguments
+    // /// `cpumask` - The cpu affinity mask to be set in type [`AxCpuMask`].
+    // #[cfg(feature = "alloc")]
+    // #[inline]
+    // pub fn set_cpumask(&self, cpumask: AxCpuMask) {
+    //     self.ext.cpumask.store(cpumask);
+    // }
 
-    #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn select_run_queue_index(&self) -> usize {
-        use core::sync::atomic::{AtomicUsize, Ordering};
-        static RUN_QUEUE_INDEX: AtomicUsize = AtomicUsize::new(0);
+    // #[cfg(feature = "alloc")]
+    // #[inline]
+    // pub fn select_run_queue_index(&self) -> usize {
+    //     use core::sync::atomic::{AtomicUsize, Ordering};
+    //     static RUN_QUEUE_INDEX: AtomicUsize = AtomicUsize::new(0);
 
-        let cpumask = self.cpumask();
-        assert!(!cpumask.is_empty(), "No available CPU for task execution");
+    //     let cpumask = self.cpumask();
+    //     assert!(!cpumask.is_empty(), "No available CPU for task execution");
 
-        // Round-robin selection of the run queue index.
-        loop {
-            let index = RUN_QUEUE_INDEX.fetch_add(1, Ordering::SeqCst) % config::SMP;
-            if cpumask.get(index) {
-                return index;
-            }
-        }
-    }
+    //     // Round-robin selection of the run queue index.
+    //     loop {
+    //         let index = RUN_QUEUE_INDEX.fetch_add(1, Ordering::SeqCst) % config::SMP;
+    //         if cpumask.get(index) {
+    //             return index;
+    //         }
+    //     }
+    // }
 }
 
 // private methods
@@ -538,23 +518,23 @@ impl TaskInner {
         }
     }
 
-    #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn exit_code(&self) -> i32 {
-        self.ext.exit_code.load(Ordering::Acquire)
-    }
+    // #[cfg(feature = "alloc")]
+    // #[inline]
+    // pub fn exit_code(&self) -> i32 {
+    //     self.ext.exit_code.load(Ordering::Acquire)
+    // }
 
-    #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn set_exit_code(&self, exit_code: i32) {
-        self.ext.exit_code.store(exit_code, Ordering::Release);
-    }
+    // #[cfg(feature = "alloc")]
+    // #[inline]
+    // pub fn set_exit_code(&self, exit_code: i32) {
+    //     self.ext.exit_code.store(exit_code, Ordering::Release);
+    // }
 
-    #[cfg(feature = "alloc")]
-    #[inline]
-    pub fn wait_queue(&self) -> &WaitQueue {
-        &self.ext.wait_for_exit
-    }
+    // #[cfg(feature = "alloc")]
+    // #[inline]
+    // pub fn wait_queue(&self) -> &WaitQueue {
+    //     &self.ext.wait_for_exit
+    // }
 
     #[inline]
     pub const unsafe fn ctx_mut_ptr(&self) -> *mut TaskContext {
@@ -586,19 +566,19 @@ impl fmt::Debug for TaskInner {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("TaskInner")
             .field("id", &self.id)
-            .field("name", &self.ext.name)
             .field("state", &self.state())
             .finish()
     }
 }
 
-#[cfg(feature = "alloc")]
-impl Drop for TaskInner {
-    fn drop(&mut self) {
-        debug!("task drop: {}", self.id_name());
-    }
-}
+// #[cfg(feature = "alloc")]
+// impl Drop for TaskInner {
+//     fn drop(&mut self) {
+//         debug!("task drop: {}", self.id_name());
+//     }
+// }
 
+// TODO：分析清楚栈的使用后，将TaskStack中涉及alloc的部分移动到task_management中
 #[derive(Debug)]
 pub struct TaskStack {
     ptr: NonNull<u8>,

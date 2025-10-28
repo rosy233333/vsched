@@ -9,6 +9,7 @@ members = [
     "vsched",
     "utils",
     "vsched_apis",
+    "task_management",
 ]
 
 [workspace.package]
@@ -31,6 +32,7 @@ user_test = { path = "user_test" }
 base_task = { path = "base_task" }
 utils = { path = "utils" }
 vsched_apis = { path = "vsched_apis" }
+task_management = { path = "task_management" }
 
 [profile.release]
 panic = "abort"

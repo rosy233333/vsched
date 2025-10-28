@@ -9,162 +9,165 @@ use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
-use base_task::{AxTask, TaskInner, TaskRef, TaskStack, TaskState};
+// use base_task::{AxTask, TaskInner, TaskRef, TaskStack, TaskState};
+use base_task::{TaskStack, TaskState};
+use task_management::task_inner_ext::{AxTask, TaskInner, TaskRef, base_to_ext};
 
 pub use base_task::TaskExtRef;
 
-/// Task extended data for the monolithic kernel.
-pub struct TaskExt {
-    base: NonNull<AxTask>,
-    // 以下字段都需要在 TaskExt 中定义
-    name: String,
-    entry: Option<*mut dyn FnOnce()>,
-    /// Mark whether the task is in the wait queue.
-    in_wait_queue: AtomicBool,
-    /// A ticket ID used to identify the timer event.
-    /// Set by `set_timer_ticket()` when creating a timer event in `set_alarm_wakeup()`,
-    /// expired by setting it as zero in `timer_ticket_expired()`, which is called by `cancel_events()`.
-    #[cfg(feature = "irq")]
-    timer_ticket_id: AtomicU64,
+// /// Task extended data for the monolithic kernel.
+// pub struct TaskExt {
+//     base: NonNull<AxTask>,
+//     // 以下字段都需要在 TaskExt 中定义
+//     name: String,
+//     entry: Option<*mut dyn FnOnce()>,
+//     /// Mark whether the task is in the wait queue.
+//     in_wait_queue: AtomicBool,
+//     /// A ticket ID used to identify the timer event.
+//     /// Set by `set_timer_ticket()` when creating a timer event in `set_alarm_wakeup()`,
+//     /// expired by setting it as zero in `timer_ticket_expired()`, which is called by `cancel_events()`.
+//     #[cfg(feature = "irq")]
+//     timer_ticket_id: AtomicU64,
 
-    #[cfg(feature = "preempt")]
-    preempt_disable_count: AtomicUsize,
-    exit_code: AtomicI32,
-    wait_for_exit: WaitQueue,
-    /// The future of coroutine task.
-    pub future: UnsafeCell<Option<core::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>>>,
-}
+//     #[cfg(feature = "preempt")]
+//     preempt_disable_count: AtomicUsize,
+//     exit_code: AtomicI32,
+//     wait_for_exit: WaitQueue,
+//     /// The future of coroutine task.
+//     pub future: UnsafeCell<Option<core::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>>>,
+// }
 
-unsafe impl Send for TaskExt {}
-unsafe impl Sync for TaskExt {}
+// unsafe impl Send for TaskExt {}
+// unsafe impl Sync for TaskExt {}
 
-impl TaskExt {
-    /// Gets the name of the task.
-    pub fn name(&self) -> &str {
-        self.name.as_str()
-    }
+// impl TaskExt {
+//     /// Gets the name of the task.
+//     pub fn name(&self) -> &str {
+//         self.name.as_str()
+//     }
 
-    #[inline]
-    pub(crate) fn in_wait_queue(&self) -> bool {
-        self.in_wait_queue.load(Ordering::Acquire)
-    }
+//     #[inline]
+//     pub(crate) fn in_wait_queue(&self) -> bool {
+//         self.in_wait_queue.load(Ordering::Acquire)
+//     }
 
-    #[inline]
-    pub(crate) fn set_in_wait_queue(&self, in_wait_queue: bool) {
-        self.in_wait_queue.store(in_wait_queue, Ordering::Release);
-    }
+//     #[inline]
+//     pub(crate) fn set_in_wait_queue(&self, in_wait_queue: bool) {
+//         self.in_wait_queue.store(in_wait_queue, Ordering::Release);
+//     }
 
-    /// Returns task's current timer ticket ID.
-    #[inline]
-    #[cfg(feature = "irq")]
-    pub(crate) fn timer_ticket(&self) -> u64 {
-        self.timer_ticket_id.load(Ordering::Acquire)
-    }
+//     /// Returns task's current timer ticket ID.
+//     #[inline]
+//     #[cfg(feature = "irq")]
+//     pub(crate) fn timer_ticket(&self) -> u64 {
+//         self.timer_ticket_id.load(Ordering::Acquire)
+//     }
 
-    /// Set the timer ticket ID.
-    #[inline]
-    #[cfg(feature = "irq")]
-    pub(crate) fn set_timer_ticket(&self, timer_ticket_id: u64) {
-        // CAN NOT set timer_ticket_id to 0,
-        // because 0 is used to indicate the timer event is expired.
-        assert!(timer_ticket_id != 0);
-        self.timer_ticket_id
-            .store(timer_ticket_id, Ordering::Release);
-    }
+//     /// Set the timer ticket ID.
+//     #[inline]
+//     #[cfg(feature = "irq")]
+//     pub(crate) fn set_timer_ticket(&self, timer_ticket_id: u64) {
+//         // CAN NOT set timer_ticket_id to 0,
+//         // because 0 is used to indicate the timer event is expired.
+//         assert!(timer_ticket_id != 0);
+//         self.timer_ticket_id
+//             .store(timer_ticket_id, Ordering::Release);
+//     }
 
-    /// Expire timer ticket ID by setting it to 0,
-    /// it can be used to identify one timer event is triggered or expired.
-    #[inline]
-    #[cfg(feature = "irq")]
-    pub(crate) fn timer_ticket_expired(&self) {
-        self.timer_ticket_id.store(0, Ordering::Release);
-    }
+//     /// Expire timer ticket ID by setting it to 0,
+//     /// it can be used to identify one timer event is triggered or expired.
+//     #[inline]
+//     #[cfg(feature = "irq")]
+//     pub(crate) fn timer_ticket_expired(&self) {
+//         self.timer_ticket_id.store(0, Ordering::Release);
+//     }
 
-    #[inline]
-    #[cfg(feature = "preempt")]
-    pub(crate) fn can_preempt(&self, current_disable_count: usize) -> bool {
-        self.preempt_disable_count.load(Ordering::Acquire) == current_disable_count
-    }
+//     #[inline]
+//     #[cfg(feature = "preempt")]
+//     pub(crate) fn can_preempt(&self, current_disable_count: usize) -> bool {
+//         self.preempt_disable_count.load(Ordering::Acquire) == current_disable_count
+//     }
 
-    #[inline]
-    #[cfg(feature = "preempt")]
-    pub(crate) fn disable_preempt(&self) {
-        self.preempt_disable_count.fetch_add(1, Ordering::Release);
-    }
+//     #[inline]
+//     #[cfg(feature = "preempt")]
+//     pub(crate) fn disable_preempt(&self) {
+//         self.preempt_disable_count.fetch_add(1, Ordering::Release);
+//     }
 
-    /// Notify all tasks that join on this task.
-    pub fn notify_exit(&self, exit_code: i32) {
-        self.exit_code.store(exit_code, Ordering::Release);
-        self.wait_for_exit.notify_all(false);
-    }
+//     /// Notify all tasks that join on this task.
+//     pub fn notify_exit(&self, exit_code: i32) {
+//         self.exit_code.store(exit_code, Ordering::Release);
+//         self.wait_for_exit.notify_all(false);
+//     }
 
-    pub fn new<F>(entry: F, name: String) -> Self
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        Self {
-            base: NonNull::dangling(),
-            name,
-            entry: Some(Box::into_raw(Box::new(entry))),
-            in_wait_queue: AtomicBool::new(false),
-            exit_code: AtomicI32::new(0),
-            wait_for_exit: WaitQueue::new(),
-            future: UnsafeCell::new(None),
-        }
-    }
+//     pub fn new<F>(entry: F, name: String) -> Self
+//     where
+//         F: FnOnce() + Send + 'static,
+//     {
+//         Self {
+//             base: NonNull::dangling(),
+//             name,
+//             entry: Some(Box::into_raw(Box::new(entry))),
+//             in_wait_queue: AtomicBool::new(false),
+//             exit_code: AtomicI32::new(0),
+//             wait_for_exit: WaitQueue::new(),
+//             future: UnsafeCell::new(None),
+//         }
+//     }
 
-    pub fn new_f<F>(future: F, name: String) -> Self
-    where
-        F: Future + Send + 'static,
-    {
-        Self {
-            base: NonNull::dangling(),
-            name,
-            entry: None,
-            in_wait_queue: AtomicBool::new(false),
-            exit_code: AtomicI32::new(0),
-            wait_for_exit: WaitQueue::new(),
-            future: UnsafeCell::new(Some(Box::pin(async {
-                future.await;
-                exit_f(0).await;
-            }))),
-        }
-    }
+//     pub fn new_f<F>(future: F, name: String) -> Self
+//     where
+//         F: Future + Send + 'static,
+//     {
+//         Self {
+//             base: NonNull::dangling(),
+//             name,
+//             entry: None,
+//             in_wait_queue: AtomicBool::new(false),
+//             exit_code: AtomicI32::new(0),
+//             wait_for_exit: WaitQueue::new(),
+//             future: UnsafeCell::new(Some(Box::pin(async {
+//                 future.await;
+//                 exit_f(0).await;
+//             }))),
+//         }
+//     }
 
-    pub fn new_init(name: String) -> Self {
-        Self {
-            base: NonNull::dangling(),
-            name,
-            entry: None,
-            in_wait_queue: AtomicBool::new(false),
-            exit_code: AtomicI32::new(0),
-            wait_for_exit: WaitQueue::new(),
-            future: UnsafeCell::new(None),
-        }
-    }
+//     pub fn new_init(name: String) -> Self {
+//         Self {
+//             base: NonNull::dangling(),
+//             name,
+//             entry: None,
+//             in_wait_queue: AtomicBool::new(false),
+//             exit_code: AtomicI32::new(0),
+//             wait_for_exit: WaitQueue::new(),
+//             future: UnsafeCell::new(None),
+//         }
+//     }
 
-    pub fn join(&self) -> Option<i32> {
-        let task_ref = unsafe { &*self.base.as_ptr() };
-        self.wait_for_exit
-            .wait_until(|| task_ref.state() == TaskState::Exited);
-        Some(task_ref.task_ext().exit_code.load(Ordering::Acquire))
-    }
+//     pub fn join(&self) -> Option<i32> {
+//         let task_ref = unsafe { &*self.base.as_ptr() };
+//         self.wait_for_exit
+//             .wait_until(|| task_ref.state() == TaskState::Exited);
+//         Some(task_ref.task_ext().exit_code.load(Ordering::Acquire))
+//     }
 
-    pub async fn join_f(&self) -> Option<i32> {
-        let task_ref = unsafe { &*self.base.as_ptr() };
-        self.wait_for_exit
-            .wait_until_f(|| task_ref.state() == TaskState::Exited)
-            .await;
-        Some(task_ref.task_ext().exit_code.load(Ordering::Acquire))
-    }
+//     pub async fn join_f(&self) -> Option<i32> {
+//         let task_ref = unsafe { &*self.base.as_ptr() };
+//         self.wait_for_exit
+//             .wait_until_f(|| task_ref.state() == TaskState::Exited)
+//             .await;
+//         Some(task_ref.task_ext().exit_code.load(Ordering::Acquire))
+//     }
 
-    pub fn id_name(&self) -> String {
-        let task_ref = unsafe { &*self.base.as_ptr() };
-        format!("task({}, {:?})", task_ref.id().as_u64(), self.name)
-    }
-}
+//     pub fn id_name(&self) -> String {
+//         let task_ref = unsafe { &*self.base.as_ptr() };
+//         format!("task({}, {:?})", task_ref.id().as_u64(), self.name)
+//     }
+// }
 
-base_task::def_task_ext!(TaskExt);
+// pub struct TaskExt(usize);
+// base_task::def_task_ext!(TaskExt);
 
 pub struct Task;
 
@@ -185,13 +188,13 @@ impl Task {
         F: FnOnce() + Send + 'static,
     {
         let mut t = TaskInner::new(entry, task_entry as usize, name.clone(), stack_size);
-        t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
+        // t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
         let arc_task = Arc::new(AxTask::new(t));
         let task_raw_ptr = Arc::into_raw(arc_task);
-        unsafe {
-            (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
-                NonNull::new(task_raw_ptr as _).unwrap();
-        }
+        // unsafe {
+        //     (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
+        //         NonNull::new(task_raw_ptr as _).unwrap();
+        // }
 
         TaskRef::new(task_raw_ptr)
     }
@@ -209,13 +212,13 @@ impl Task {
         );
         t.set_alloc_stack_fn(alloc_stack_for_coroutine as usize);
         t.set_coroutine_schedule(coroutine_schedule as usize);
-        t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
+        // t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
         let arc_task = Arc::new(AxTask::new(t));
         let task_raw_ptr = Arc::into_raw(arc_task);
-        unsafe {
-            (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
-                NonNull::new(task_raw_ptr as _).unwrap();
-        }
+        // unsafe {
+        //     (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
+        //         NonNull::new(task_raw_ptr as _).unwrap();
+        // }
 
         TaskRef::new(task_raw_ptr)
     }
@@ -223,13 +226,13 @@ impl Task {
     pub fn new_init(name: String) -> TaskRef {
         let mut t = TaskInner::new_init(name.clone());
         t.set_state(TaskState::Running);
-        t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
+        // t.init_task_ext(TaskExt::new(|| {}, name)); // 目前不使用TaskExt（已改为使用TaskInnerExt），该初始化过程只用于占位
         let arc_task = Arc::new(AxTask::new(t));
         let task_raw_ptr = Arc::into_raw(arc_task);
-        unsafe {
-            (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
-                NonNull::new(task_raw_ptr as _).unwrap();
-        }
+        // unsafe {
+        //     (&mut *((&*task_raw_ptr).task_ext_ptr() as *mut TaskExt)).base =
+        //         NonNull::new(task_raw_ptr as _).unwrap();
+        // }
 
         TaskRef::new(task_raw_ptr)
     }
@@ -247,9 +250,9 @@ impl Task {
 
 extern "C" fn task_entry() {
     vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
-    let task = vsched_apis::current(get_cpu_id());
-    if let Some(entry) = task.task_ext().entry {
-        unsafe { Box::from_raw(entry)() };
+    let task = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+    if let Some(entry) = task.entry() {
+        unsafe { Box::from_raw(*entry)() };
     }
     crate::vsched::exit(0);
 }
@@ -284,7 +287,8 @@ extern "C" fn coroutine_schedule() {
         vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
-        let curr = vsched_apis::current(get_cpu_id());
+        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+
         let fut = curr
             .inner()
             .future()
@@ -292,16 +296,12 @@ extern "C" fn coroutine_schedule() {
             .expect("The task should be a coroutine");
         let _res = fut.as_mut().poll(&mut cx);
         // 该行要求协程在返回Pending或完全结束时，都需要将state从Running切换到其它状态（Ready, Blocked, Exited）。
-        assert!(
-            !curr.is_running(),
-            "{} is still running",
-            curr.task_ext().id_name()
-        );
+        assert!(!curr.is_running(), "{} is still running", curr.id_name());
         let prev_task = curr;
         let stack = unsafe { &mut *prev_task.kernel_stack() }
             .take()
             .expect("The stack should be taken out after running.");
-        let next_task = vsched_apis::current(get_cpu_id());
+        let next_task = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
         let next_stack = unsafe { &mut *next_task.kernel_stack() };
         if next_stack.is_none() && !next_task.is_init() && !next_task.is_idle() {
             next_stack.replace(stack);
