@@ -11,12 +11,15 @@ use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
 use std::thread_local;
 use std::{collections::VecDeque, sync::atomic::AtomicUsize};
-use task_management::task_inner_ext::{TaskRef, base_to_ext, ext_to_base};
+use task_management::{
+    task_inner_ext::{TaskRef, base_to_ext, ext_to_base},
+    wait_queue::{WaitQueue, WaitQueueGuard},
+};
 pub use vsched_apis::*;
 
 use xmas_elf::program::SegmentData;
 
-use crate::{Task, WaitQueue, WaitQueueGuard};
+use crate::Task;
 
 const VSCHED: &[u8] = include_bytes_aligned::include_bytes_aligned!(8, "../../libvsched.so");
 
@@ -368,7 +371,7 @@ impl<'a> Future for BlockedReschedFuture<'a> {
         let Self { wq, flag } = self.get_mut();
         if !(*flag) {
             *flag = !*flag;
-            let mut wq_guard = wq.queue.lock().unwrap();
+            let mut wq_guard = wq.queue.lock();
             let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
             assert!(curr.is_running());
             assert!(!curr.is_idle());

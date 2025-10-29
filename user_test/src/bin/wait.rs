@@ -16,7 +16,7 @@ fn main() {
     let task2 = Task::new(
         move || {
             println!("wait task start");
-            task1_clone.task_ext().join();
+            task1_clone.join();
             println!("wait task ok");
             Task::drop_decrease_sc(task1_clone);
         },

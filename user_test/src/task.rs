@@ -1,4 +1,4 @@
-use crate::wait_queue::WaitQueue;
+// use crate::wait_queue::WaitQueue;
 use crate::{exit_f, get_cpu_id};
 use core::cell::UnsafeCell;
 #[cfg(feature = "irq")]
@@ -11,7 +11,10 @@ use std::sync::{Arc, Mutex};
 
 // use base_task::{AxTask, TaskInner, TaskRef, TaskStack, TaskState};
 use base_task::{TaskStack, TaskState};
-use task_management::task_inner_ext::{AxTask, TaskInner, TaskRef, base_to_ext};
+use task_management::{
+    task_inner_ext::{AxTask, TaskInner, TaskRef, base_to_ext},
+    wait_queue::WaitQueue,
+};
 
 pub use base_task::TaskExtRef;
 

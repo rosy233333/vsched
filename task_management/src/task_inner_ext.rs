@@ -204,14 +204,13 @@ impl TaskInner {
     /// Notify all tasks that join on this task.
     pub fn notify_exit(&self, exit_code: i32) {
         self.ext.exit_code.store(exit_code, Ordering::Release);
-        // TODO: notify_all函数还未移到该库中，需要移动
-        // self.ext.wait_for_exit.notify_all(false);
+        self.ext.wait_for_exit.notify_all(false);
     }
 
     pub fn join(&self) -> Option<i32> {
-        // TODO: wait_for_exit函数还未移到该库中，需要移动
-        // self.ext.wait_for_exit
-        //     .wait_until(|| self.inner.state() == TaskState::Exited);
+        self.ext
+            .wait_for_exit
+            .wait_until(|| self.inner.state() == TaskState::Exited);
         Some(self.ext.exit_code.load(Ordering::Acquire))
     }
 }

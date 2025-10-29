@@ -467,6 +467,7 @@ dependencies = [
  "kspin",
  "log",
  "scheduler",
+ "vsched_apis",
 ]
 
 [[package]]
