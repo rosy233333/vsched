@@ -13,7 +13,7 @@ use crate::{
     wait_queue::{WaitQueue, WaitQueueGuard},
 };
 
-pub fn init_vsched() {
+pub(crate) fn init_vsched() {
     let main_task = task::new_init("main".into());
     main_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
     let idle_task = task::new(|| run_idle(), "idle".into(), config::TASK_STACK_SIZE);
@@ -23,12 +23,12 @@ pub fn init_vsched() {
         arcext_to_base(idle_task),
         arcext_to_base(main_task),
     );
-    let gc_task = task::new(gc_entry, "gc".into(), config::TASK_STACK_SIZE);
+    let gc_task = task::new_gc("gc".into(), config::TASK_STACK_SIZE);
     gc_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
     vsched_apis::spawn(get_cpu_id(), arcext_to_base(gc_task));
 }
 
-pub fn init_vsched_secondary() {
+pub(crate) fn init_vsched_secondary() {
     let idle_task = task::new_init("idle".into());
     idle_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
     vsched_apis::init_vsched(
@@ -38,7 +38,7 @@ pub fn init_vsched_secondary() {
     );
 }
 
-pub fn blocked_resched(mut wq_guard: WaitQueueGuard) {
+pub(crate) fn blocked_resched(mut wq_guard: WaitQueueGuard) {
     let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
     assert!(curr.is_running());
     assert!(!curr.is_idle());
@@ -53,7 +53,7 @@ pub fn blocked_resched(mut wq_guard: WaitQueueGuard) {
     vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
 }
 
-pub fn exit(exit_code: i32) -> ! {
+pub(crate) fn exit(exit_code: i32) -> ! {
     let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
     assert!(curr.is_running());
     assert!(!curr.is_idle());
@@ -77,7 +77,7 @@ pub fn exit(exit_code: i32) -> ! {
 ///
 /// 此处的`vsched_apis::yield_now`之后为线程的恢复点之一。
 #[inline]
-pub fn yield_now() {
+pub(crate) fn yield_now() {
     vsched_apis::yield_now(get_cpu_id());
     vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
 }
@@ -85,7 +85,7 @@ pub fn yield_now() {
 /// Current coroutine task gives up the CPU time voluntarily, and switches to another
 /// ready task.
 #[inline]
-pub async fn yield_now_f() {
+pub(crate) async fn yield_now_f() {
     YieldFuture::new().await;
 }
 
@@ -139,7 +139,7 @@ impl Drop for YieldFuture {
 }
 
 /// Exits the current coroutine task.
-pub async fn exit_f(exit_code: i32) {
+pub(crate) async fn exit_f(exit_code: i32) {
     ExitFuture::new(exit_code).await;
 }
 

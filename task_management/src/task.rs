@@ -15,7 +15,7 @@ use base_task::{TaskStack, TaskState};
 use config::SMP;
 use kspin::SpinNoIrq;
 
-pub fn new<F>(entry: F, name: String, stack_size: usize) -> ArcTaskRef
+pub(crate) fn new<F>(entry: F, name: String, stack_size: usize) -> ArcTaskRef
 where
     F: FnOnce() + Send + 'static,
 {
@@ -23,7 +23,7 @@ where
     Arc::new(AxTask::new(t))
 }
 
-pub fn new_f<F>(future: F, name: String) -> ArcTaskRef
+pub(crate) fn new_f<F>(future: F, name: String) -> ArcTaskRef
 where
     F: Future<Output = ()> + Send + 'static,
 {
@@ -39,13 +39,13 @@ where
     Arc::new(AxTask::new(t))
 }
 
-pub fn new_init(name: String) -> ArcTaskRef {
+pub(crate) fn new_init(name: String) -> ArcTaskRef {
     let t = TaskInner::new_init(name.clone());
     t.set_state(TaskState::Running);
     Arc::new(AxTask::new(t))
 }
 
-pub fn new_gc(name: String, stack_size: usize) -> ArcTaskRef {
+pub(crate) fn new_gc(name: String, stack_size: usize) -> ArcTaskRef {
     let t = TaskInner::new(gc_entry, task_entry as usize, name, stack_size);
     Arc::new(AxTask::new(t))
 }

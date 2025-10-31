@@ -1,8 +1,4 @@
-use task_management::{
-    sched::{exit, init_vsched, yield_now},
-    task,
-    task_inner_ext::{arcext_to_base, ext_to_base},
-};
+use task_management::task_api::*;
 use user_test::*;
 fn main() {
     env_logger::init();
@@ -10,7 +6,7 @@ fn main() {
     core::mem::forget(vsched_map);
     init_cpu_id();
     init_vsched();
-    let task1 = task::new(
+    let task1 = new(
         || {
             println!("into spawned task inner");
         },
@@ -18,7 +14,7 @@ fn main() {
         config::TASK_STACK_SIZE,
     );
     let task1_clone = task1.clone();
-    let task2 = task::new(
+    let task2 = new(
         move || {
             println!("wait task start");
             task1_clone.join();
@@ -27,8 +23,10 @@ fn main() {
         "task__2".into(),
         config::TASK_STACK_SIZE,
     );
-    vsched_apis::spawn(get_cpu_id(), arcext_to_base(task2.clone()));
-    vsched_apis::spawn(get_cpu_id(), arcext_to_base(task1.clone()));
+    // vsched_apis::spawn(get_cpu_id(), arcext_to_base(task2.clone()));
+    // vsched_apis::spawn(get_cpu_id(), arcext_to_base(task1.clone()));
+    spawn(task2.clone());
+    spawn(task1.clone());
 
     yield_now();
 

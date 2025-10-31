@@ -1,4 +1,4 @@
-use task_management::sched::{exit, init_vsched};
+use task_management::task_api::*;
 use user_test::*;
 fn main() {
     env_logger::init();

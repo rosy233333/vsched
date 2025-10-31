@@ -17,7 +17,7 @@ use task_management::{
     task_inner_ext::{TaskRef, base_to_ext, ext_to_base},
     wait_queue::{WaitQueue, WaitQueueGuard},
 };
-pub use vsched_apis::*;
+// pub use vsched_apis::*;
 
 use xmas_elf::program::SegmentData;
 
