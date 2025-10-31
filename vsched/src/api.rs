@@ -8,6 +8,11 @@ pub extern "C" fn clear_prev_task_on_cpu(cpu_id: usize) {
     crate::sched::clear_prev_task_on_cpu(get_run_queue(cpu_id));
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn take_prev_task_and_clear_on_cpu(cpu_id: usize) -> TaskRef {
+    crate::sched::take_prev_task_and_clear_on_cpu(get_run_queue(cpu_id))
+}
+
 /// Gets the current task.
 ///
 /// # Panics

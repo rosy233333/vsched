@@ -201,6 +201,13 @@ pub(crate) fn clear_prev_task_on_cpu(percpu: &'static PerCPU) {
     unsafe { percpu.prev_task.as_mut_unchecked().assume_init_ref().set_on_cpu(false) };
 }
 
+#[inline(never)]
+pub(crate) fn take_prev_task_and_clear_on_cpu(percpu: &'static PerCPU) -> TaskRef {
+    let mut prev_task = unsafe { percpu.prev_task.replace(MaybeUninit::uninit()).assume_init() };
+    prev_task.set_on_cpu(false);
+    prev_task
+}
+
 /// Core reschedule subroutine.
 /// Pick the next task to run and switch to it.
 /// This function is only used in `YieldFuture`, `ExitFuture`,

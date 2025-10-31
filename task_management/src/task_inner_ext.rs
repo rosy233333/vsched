@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use crate::{interface::CPU_NUM, wait_queue::WaitQueue};
 use alloc::{boxed::Box, format, string::String, sync::Arc};
 use base_task::{TaskStack, TaskState};
 use config::AxCpuMask;
@@ -11,8 +12,6 @@ use core::{
 };
 use crossbeam::atomic::AtomicCell;
 use log::debug;
-
-use crate::{interface::CPU_NUM, wait_queue::WaitQueue};
 
 pub type AxTask = scheduler::BaseTask<TaskInner>;
 pub type TaskRef = scheduler::BaseTaskRef<TaskInner>;
@@ -228,6 +227,12 @@ impl TaskInner {
             .wait_until_f(|| self.inner.state() == TaskState::Exited)
             .await;
         Some(self.ext.exit_code.load(Ordering::Acquire))
+    }
+}
+
+impl Drop for TaskInner {
+    fn drop(&mut self) {
+        debug!("drop task: {}", self.id_name());
     }
 }
 

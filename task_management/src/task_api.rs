@@ -45,7 +45,7 @@ pub async fn exit_f(exit_code: i32) {
     crate::sched::exit_f(exit_code).await
 }
 
-/// 所有线程的恢复点都需要调用`clear_prev_task_on_cpu`。
+/// 所有线程的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
 ///
 /// 此处的`vsched_apis::yield_now`之后为线程的恢复点之一。
 #[inline]

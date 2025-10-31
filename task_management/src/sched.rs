@@ -1,4 +1,5 @@
 use core::{
+    mem::ManuallyDrop,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -8,7 +9,7 @@ use config::AxCpuMask;
 
 use crate::{
     interface::{get_cpu_id, main_task_exit},
-    task::{self, EXITED_TASKS, WAIT_FOR_EXIT, gc_entry, run_idle},
+    task::{self, run_idle},
     task_inner_ext::{arcext_to_base, base_to_ext},
     wait_queue::{WaitQueue, WaitQueueGuard},
 };
@@ -23,9 +24,9 @@ pub(crate) fn init_vsched() {
         arcext_to_base(idle_task),
         arcext_to_base(main_task),
     );
-    let gc_task = task::new_gc("gc".into(), config::TASK_STACK_SIZE);
-    gc_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    vsched_apis::spawn(get_cpu_id(), arcext_to_base(gc_task));
+    // let gc_task = task::new_gc("gc".into(), config::TASK_STACK_SIZE);
+    // gc_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
+    // vsched_apis::spawn(get_cpu_id(), arcext_to_base(gc_task));
 }
 
 pub(crate) fn init_vsched_secondary() {
@@ -50,7 +51,12 @@ pub(crate) fn blocked_resched(mut wq_guard: WaitQueueGuard) {
 
     log::debug!("task blocked {:?}", curr.name());
     vsched_apis::resched(get_cpu_id());
-    vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
+    // clear prev task's on cpu flag and drop it if it is exited。
+    let prev_task =
+        unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+    if prev_task.state() == TaskState::Exited {
+        let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
+    }
 }
 
 pub(crate) fn exit(exit_code: i32) -> ! {
@@ -59,27 +65,31 @@ pub(crate) fn exit(exit_code: i32) -> ! {
     assert!(!curr.is_idle());
     log::debug!("{:?} is exited", curr.name());
     if curr.is_init() {
-        EXITED_TASKS.lock().clear();
+        // EXITED_TASKS.lock().clear();
         main_task_exit(0) // 原有的代码就是返回0而非exit_code，暂不清楚原因。
     } else {
         curr.set_state(base_task::TaskState::Exited);
         curr.notify_exit(exit_code);
-        // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
-        EXITED_TASKS.lock().push_back(curr);
-        WAIT_FOR_EXIT.notify_one(false);
+        // EXITED_TASKS.lock().push_back(curr);
+        // WAIT_FOR_EXIT.notify_one(false);
     }
 
     vsched_apis::resched(get_cpu_id());
     unreachable!()
 }
 
-/// 所有线程的恢复点都需要调用`clear_prev_task_on_cpu`。
+/// 所有线程的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
 ///
 /// 此处的`vsched_apis::yield_now`之后为线程的恢复点之一。
 #[inline]
 pub(crate) fn yield_now() {
     vsched_apis::yield_now(get_cpu_id());
-    vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
+    // clear prev task's on cpu flag and drop it if it is exited。
+    let prev_task =
+        unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+    if prev_task.state() == TaskState::Exited {
+        let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
+    }
 }
 
 /// Current coroutine task gives up the CPU time voluntarily, and switches to another
@@ -180,11 +190,11 @@ impl Future for ExitFuture {
         // Notify the joiner task.
         curr.notify_exit(exit_code);
 
-        // Push current task to the `EXITED_TASKS` list, which will be consumed by the GC task.
-        // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
-        EXITED_TASKS.lock().push_back(curr);
-        // Wake up the GC task to drop the exited tasks.
-        WAIT_FOR_EXIT.notify_one(false);
+        // // Push current task to the `EXITED_TASKS` list, which will be consumed by the GC task.
+        // // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
+        // EXITED_TASKS.lock().push_back(curr);
+        // // Wake up the GC task to drop the exited tasks.
+        // WAIT_FOR_EXIT.notify_one(false);
         assert!(vsched_apis::resched_f(get_cpu_id()));
         Poll::Pending
     }

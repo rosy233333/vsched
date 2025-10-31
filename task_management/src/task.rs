@@ -45,32 +45,32 @@ pub(crate) fn new_init(name: String) -> ArcTaskRef {
     Arc::new(AxTask::new(t))
 }
 
-pub(crate) fn new_gc(name: String, stack_size: usize) -> ArcTaskRef {
-    let t = TaskInner::new(gc_entry, task_entry as usize, name, stack_size);
-    Arc::new(AxTask::new(t))
-}
+// pub(crate) fn new_gc(name: String, stack_size: usize) -> ArcTaskRef {
+//     let t = TaskInner::new(gc_entry, task_entry as usize, name, stack_size);
+//     Arc::new(AxTask::new(t))
+// }
 
-pub(crate) static EXITED_TASKS: SpinNoIrq<VecDeque<TaskRef>> = SpinNoIrq::new(VecDeque::new());
-pub(crate) static WAIT_FOR_EXIT: WaitQueue = WaitQueue::new();
+// pub(crate) static EXITED_TASKS: SpinNoIrq<VecDeque<TaskRef>> = SpinNoIrq::new(VecDeque::new());
+// pub(crate) static WAIT_FOR_EXIT: WaitQueue = WaitQueue::new();
 
-pub(crate) fn gc_entry() {
-    loop {
-        let mut exited_tasks = EXITED_TASKS.lock();
-        let n = exited_tasks.len();
-        for _ in 0..n {
-            if let Some(task) = exited_tasks.pop_front() {
-                let task_arc = ManuallyDrop::into_inner(task.into_arc());
-                if Arc::strong_count(&task_arc) > 1 {
-                    exited_tasks.push_back(task);
-                } else {
-                    drop(task_arc);
-                }
-            }
-        }
-        drop(exited_tasks);
-        WAIT_FOR_EXIT.wait();
-    }
-}
+// pub(crate) fn gc_entry() {
+//     loop {
+//         let mut exited_tasks = EXITED_TASKS.lock();
+//         let n = exited_tasks.len();
+//         for _ in 0..n {
+//             if let Some(task) = exited_tasks.pop_front() {
+//                 let task_arc = ManuallyDrop::into_inner(task.into_arc());
+//                 if Arc::strong_count(&task_arc) > 1 {
+//                     exited_tasks.push_back(task);
+//                 } else {
+//                     drop(task_arc);
+//                 }
+//             }
+//         }
+//         drop(exited_tasks);
+//         WAIT_FOR_EXIT.wait();
+//     }
+// }
 
 pub fn run_idle() {
     loop {
@@ -79,7 +79,13 @@ pub fn run_idle() {
 }
 
 extern "C" fn task_entry() {
-    vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
+    // clear prev task's on cpu flag and drop it if it is exited。
+    let prev_task =
+        unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+    if prev_task.state() == TaskState::Exited {
+        let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
+    }
+    drop(prev_task);
     let task = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
     if let Some(entry) = task.entry() {
         unsafe { Box::from_raw(*entry)() };
@@ -121,14 +127,20 @@ fn alloc_stack_for_coroutine() -> TaskStack {
 
 /// Recycle the stack after the coroutine running to a certain stage.
 fn recycle_stack_of_coroutine(stack: TaskStack) {
-    log::debug!("recycle task");
+    log::debug!("recycle stack");
     COROUTINE_STACK_POOL.lock().push(stack)
 }
 
 fn coroutine_schedule() {
     use core::task::{Context, Waker};
     loop {
-        vsched_apis::clear_prev_task_on_cpu(get_cpu_id());
+        // clear prev task's on cpu flag and drop it if it is exited。
+        let prev_task =
+            unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+        if prev_task.state() == TaskState::Exited {
+            let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
+        }
+        drop(prev_task);
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
         let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
