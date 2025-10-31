@@ -24,7 +24,10 @@ tls = ["base_task/tls"]
 base_task = { workspace = true }
 scheduler = { workspace = true }
 crossbeam = { version = "0.8", default-features = false }
+# TODO: 移除对config的依赖，将配置项放入interface中。
 config = { workspace = true }
 log = "0.4"
-kspin = { version = "0.1" }
+kspin = "0.1"
 vsched_apis = { workspace = true }
+crate_interface = "0.1"
+cpumask = "0.1"

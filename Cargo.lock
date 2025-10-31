@@ -463,6 +463,8 @@ version = "0.0.0"
 dependencies = [
  "base_task",
  "config",
+ "cpumask",
+ "crate_interface",
  "crossbeam",
  "kspin",
  "log",
@@ -503,6 +505,7 @@ version = "0.0.0"
 dependencies = [
  "base_task",
  "config",
+ "crate_interface",
  "elf_parser",
  "env_logger",
  "include_bytes_aligned",

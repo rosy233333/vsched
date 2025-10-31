@@ -1,16 +1,18 @@
 extern crate alloc;
 
-use alloc::{boxed::Box, format, string::String};
+use alloc::{boxed::Box, format, string::String, sync::Arc};
+use base_task::{TaskStack, TaskState};
 use config::AxCpuMask;
 use core::{
     cell::UnsafeCell,
+    mem::ManuallyDrop,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicI32, Ordering},
 };
 use crossbeam::atomic::AtomicCell;
 use log::debug;
 
-use crate::wait_queue::WaitQueue;
+use crate::{interface::CPU_NUM, wait_queue::WaitQueue};
 
 pub type AxTask = scheduler::BaseTask<TaskInner>;
 pub type TaskRef = scheduler::BaseTaskRef<TaskInner>;
@@ -100,7 +102,12 @@ impl TaskInner {
         t
     }
 
-    pub fn new_f<F>(future: F, name: String) -> Self
+    pub fn new_f<F>(
+        future: F,
+        name: String,
+        alloc_stack: fn() -> TaskStack,
+        coroutine_schedule: fn(),
+    ) -> Self
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -110,7 +117,8 @@ impl TaskInner {
         };
         debug!("new coroutine task: {}", t.id_name());
         t.ext.future = UnsafeCell::new(Some(Box::pin(future)));
-        // TODO: 填写alloc_stack和coroutine_schedule字段
+        t.set_alloc_stack_fn(alloc_stack as usize);
+        t.set_coroutine_schedule(coroutine_schedule as usize);
         t
     }
 }
@@ -179,7 +187,7 @@ impl TaskInner {
 
         // Round-robin selection of the run queue index.
         loop {
-            let index = RUN_QUEUE_INDEX.fetch_add(1, Ordering::SeqCst) % config::SMP;
+            let index = unsafe { RUN_QUEUE_INDEX.fetch_add(1, Ordering::SeqCst) % CPU_NUM };
             if cpumask.get(index) {
                 return index;
             }
@@ -213,6 +221,14 @@ impl TaskInner {
             .wait_until(|| self.inner.state() == TaskState::Exited);
         Some(self.ext.exit_code.load(Ordering::Acquire))
     }
+
+    pub async fn join_f(&self) -> Option<i32> {
+        self.ext
+            .wait_for_exit
+            .wait_until_f(|| self.inner.state() == TaskState::Exited)
+            .await;
+        Some(self.ext.exit_code.load(Ordering::Acquire))
+    }
 }
 
 /// 用于将从调度器中获得的`base_task::TaskRef`转化为`TaskRef`引用（从而可访问ext字段）
@@ -233,4 +249,17 @@ pub unsafe fn base_to_ext(base_ref: base_task::TaskRef) -> TaskRef {
 #[inline]
 pub fn ext_to_base(ext_ref: TaskRef) -> base_task::TaskRef {
     unsafe { core::mem::transmute(ext_ref) }
+}
+
+pub type ArcTaskRef = Arc<AxTask>;
+
+#[inline]
+pub unsafe fn base_to_arcext(base_ref: base_task::TaskRef) -> ArcTaskRef {
+    ManuallyDrop::into_inner(unsafe { base_to_ext(base_ref) }.into_arc())
+}
+
+#[inline]
+pub fn arcext_to_base(ext_ref: ArcTaskRef) -> base_task::TaskRef {
+    let ext = TaskRef::new(Arc::into_raw(ext_ref));
+    ext_to_base(ext)
 }

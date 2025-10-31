@@ -1,4 +1,8 @@
-use crate::task_inner_ext::{TaskRef, base_to_ext, ext_to_base};
+use crate::{
+    interface::get_cpu_id,
+    sched::{BlockedReschedFuture, blocked_resched},
+    task_inner_ext::{TaskRef, base_to_ext, ext_to_base},
+};
 use alloc::{collections::VecDeque, vec::Vec};
 use kspin::{SpinNoIrq, SpinNoIrqGuard};
 
@@ -52,8 +56,7 @@ impl WaitQueue {
     pub fn wait(&self) {
         let wq = self.queue.lock();
         let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
-        // TODO: 将下句涉及的内容移到本模块中
-        // crate::vsched::blocked_resched(wq);
+        blocked_resched(wq);
         self.cancel_events(&curr, false);
     }
 
@@ -61,8 +64,7 @@ impl WaitQueue {
     /// notifies it.
     pub async fn wait_f(&self) {
         let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
-        // TODO: 将下句涉及的内容移到本模块中
-        // BlockedReschedFuture::new(self).await;
+        BlockedReschedFuture::new(self).await;
         self.cancel_events(&curr, false);
     }
 
@@ -81,8 +83,7 @@ impl WaitQueue {
             if condition() {
                 break;
             }
-            // TODO: 将下句涉及的内容移到本模块中
-            // crate::vsched::blocked_resched(wq);
+            blocked_resched(wq);
             // Preemption may occur here.
         }
         self.cancel_events(&curr, false);
@@ -102,8 +103,7 @@ impl WaitQueue {
             if condition() {
                 break;
             }
-            // TODO: 将下句涉及的内容移到本模块中
-            // BlockedReschedFuture::new(self).await;
+            BlockedReschedFuture::new(self).await;
             // Preemption may occur here.
         }
         self.cancel_events(&curr, false);
@@ -193,9 +193,4 @@ fn unblock_one_task(task: TaskRef, resched: bool) {
     // Use `NoOp` kernel guard here because the function is called with holding the
     // lock of wait queue, where the irq and preemption are disabled.
     vsched_apis::unblock_task(ext_to_base(task), resched, get_cpu_id(), get_cpu_id());
-}
-
-// TODO: 真正获取当前CPU id
-fn get_cpu_id() -> usize {
-    0
 }
