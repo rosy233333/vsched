@@ -10,7 +10,7 @@ pub const fn percpu_size_4k_aligned<T>() -> usize {
     (size_of::<PerCPU<T>>() + PAGES_SIZE_4K - 1) & MASK
 }
 
-#[repr(C, align(0x1000))] // 此处的align应保持与PAGES_SIZE_4K相同（因为注解中无法传入常量）
+#[repr(C, align(4096))] // 此处的align应保持与PAGES_SIZE_4K相同（因为注解中无法传入常量）
 pub struct PerCPU<T> {
     /// The ID of the CPU this run queue is associated with.
     pub cpu_id: usize,

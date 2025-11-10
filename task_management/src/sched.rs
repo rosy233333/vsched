@@ -24,9 +24,6 @@ pub(crate) fn init_vsched() {
         arcext_to_base(idle_task),
         arcext_to_base(main_task),
     );
-    // let gc_task = task::new_gc("gc".into(), config::TASK_STACK_SIZE);
-    // gc_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    // vsched_apis::spawn(get_cpu_id(), arcext_to_base(gc_task));
 }
 
 pub(crate) fn init_vsched_secondary() {
@@ -65,13 +62,10 @@ pub(crate) fn exit(exit_code: i32) -> ! {
     assert!(!curr.is_idle());
     log::debug!("{:?} is exited", curr.name());
     if curr.is_init() {
-        // EXITED_TASKS.lock().clear();
         main_task_exit(exit_code) // 原有的代码是返回0而非exit_code，暂不清楚原因。
     } else {
         curr.set_state(base_task::TaskState::Exited);
         curr.notify_exit(exit_code);
-        // EXITED_TASKS.lock().push_back(curr);
-        // WAIT_FOR_EXIT.notify_one(false);
     }
 
     libvsched::resched(get_cpu_id());
@@ -190,11 +184,6 @@ impl Future for ExitFuture {
         // Notify the joiner task.
         curr.notify_exit(exit_code);
 
-        // // Push current task to the `EXITED_TASKS` list, which will be consumed by the GC task.
-        // // Current task migrates from current CPU to EXITED_TASKS, so there is no need to modify the refcount.
-        // EXITED_TASKS.lock().push_back(curr);
-        // // Wake up the GC task to drop the exited tasks.
-        // WAIT_FOR_EXIT.notify_one(false);
         assert!(libvsched::resched_f(get_cpu_id()));
         Poll::Pending
     }

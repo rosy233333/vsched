@@ -21,8 +21,6 @@ fn main() {
         },
         "task__2".into(),
     );
-    // vsched_apis::spawn(get_cpu_id(), arcext_to_base(task2.clone()));
-    // vsched_apis::spawn(get_cpu_id(), arcext_to_base(task1.clone()));
     spawn(task2.clone());
     spawn(task1.clone());
 

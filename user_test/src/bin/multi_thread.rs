@@ -25,7 +25,6 @@ fn main() {
         "main spawn_test".into(),
         config::TASK_STACK_SIZE,
     );
-    // vsched_apis::spawn(get_cpu_id(), arcext_to_base(task.clone()));
     spawn(task.clone());
     task.join().unwrap();
     println!("main task wait ok");

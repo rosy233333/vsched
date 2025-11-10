@@ -45,33 +45,6 @@ pub(crate) fn new_init(name: String) -> ArcTaskRef {
     Arc::new(AxTask::new(t))
 }
 
-// pub(crate) fn new_gc(name: String, stack_size: usize) -> ArcTaskRef {
-//     let t = TaskInner::new(gc_entry, task_entry as usize, name, stack_size);
-//     Arc::new(AxTask::new(t))
-// }
-
-// pub(crate) static EXITED_TASKS: SpinNoIrq<VecDeque<TaskRef>> = SpinNoIrq::new(VecDeque::new());
-// pub(crate) static WAIT_FOR_EXIT: WaitQueue = WaitQueue::new();
-
-// pub(crate) fn gc_entry() {
-//     loop {
-//         let mut exited_tasks = EXITED_TASKS.lock();
-//         let n = exited_tasks.len();
-//         for _ in 0..n {
-//             if let Some(task) = exited_tasks.pop_front() {
-//                 let task_arc = ManuallyDrop::into_inner(task.into_arc());
-//                 if Arc::strong_count(&task_arc) > 1 {
-//                     exited_tasks.push_back(task);
-//                 } else {
-//                     drop(task_arc);
-//                 }
-//             }
-//         }
-//         drop(exited_tasks);
-//         WAIT_FOR_EXIT.wait();
-//     }
-// }
-
 pub fn run_idle() {
     loop {
         yield_now();

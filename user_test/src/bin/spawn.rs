@@ -9,16 +9,6 @@ fn main() {
     // Due to the init_vsched will spawn the `gc` and `idle` task to the scheduler,
     // the number must be not greater than `RQ_CAP - 2`.
     for _ in 0..(config::RQ_CAP - 2) {
-        // vsched_apis::spawn(
-        //     get_cpu_id(),
-        //     arcext_to_base(task::new(
-        //         || {
-        //             println!("into spawned task inner");
-        //         },
-        //         "spawn_test".into(),
-        //         config::TASK_STACK_SIZE,
-        //     )),
-        // );
         spawn(new(
             || {
                 println!("into spawned task inner");
