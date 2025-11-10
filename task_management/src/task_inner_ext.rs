@@ -1,9 +1,9 @@
 extern crate alloc;
 
-use crate::{interface::CPU_NUM, wait_queue::WaitQueue};
+use crate::wait_queue::WaitQueue;
 use alloc::{boxed::Box, format, string::String, sync::Arc};
 use base_task::{TaskStack, TaskState};
-use config::AxCpuMask;
+use config::{AxCpuMask, SMP};
 use core::{
     cell::UnsafeCell,
     mem::ManuallyDrop,
@@ -186,7 +186,7 @@ impl TaskInner {
 
         // Round-robin selection of the run queue index.
         loop {
-            let index = unsafe { RUN_QUEUE_INDEX.fetch_add(1, Ordering::SeqCst) % CPU_NUM };
+            let index = unsafe { RUN_QUEUE_INDEX.fetch_add(1, Ordering::SeqCst) % SMP };
             if cpumask.get(index) {
                 return index;
             }

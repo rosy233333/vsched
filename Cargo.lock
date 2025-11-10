@@ -88,6 +88,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d084b0137aaa901caf9f1e8b21daa6aa24d41cd806e111335541eff9683bd6"
 
 [[package]]
+name = "build_test"
+version = "0.0.0"
+dependencies = [
+ "build_vdso",
+]
+
+[[package]]
+name = "build_vdso"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "xmas-elf",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -261,6 +276,13 @@ name = "libc"
 version = "0.2.177"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
+
+[[package]]
+name = "libvsched"
+version = "0.0.0"
+dependencies = [
+ "vsched",
+]
 
 [[package]]
 name = "linkme"
@@ -467,9 +489,9 @@ dependencies = [
  "crate_interface",
  "crossbeam",
  "kspin",
+ "libvsched",
  "log",
  "scheduler",
- "vsched_apis",
 ]
 
 [[package]]
@@ -504,24 +526,32 @@ name = "user_test"
 version = "0.0.0"
 dependencies = [
  "base_task",
+ "build_vdso",
  "config",
  "crate_interface",
  "elf_parser",
  "env_logger",
  "include_bytes_aligned",
  "libc",
+ "libvsched",
  "log",
  "memmap2",
  "page_table_entry",
  "task_management",
  "utils",
- "vsched_apis",
  "xmas-elf",
 ]
 
 [[package]]
 name = "utils"
 version = "0.0.0"
+
+[[package]]
+name = "vdso_helper"
+version = "0.1.0"
+dependencies = [
+ "hal",
+]
 
 [[package]]
 name = "volatile"
@@ -536,6 +566,7 @@ dependencies = [
  "base_task",
  "config",
  "hal",
+ "vdso_helper",
 ]
 
 [[package]]

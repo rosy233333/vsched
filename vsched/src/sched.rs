@@ -1,20 +1,29 @@
 
 use base_task::{percpu_size_4k_aligned, TaskRef, BaseScheduler, PerCPU, TaskInner, TaskState};
+use config::{PAGES_SIZE_4K, SMP};
+use vdso_helper::{get_vvar_data, vvar_data};
 use core::mem::MaybeUninit;
-/// Safety:
-///     the offset of this function in the `.text`
-///     section must be little than 0x1000.
-///     The `#[inline(never)]` attribute and the
-///     offset requirement can make it work ok.
-#[inline(never)]
-#[unsafe(link_section = ".text.start")]
-#[unsafe(no_mangle)]
-pub fn get_data_base() -> usize {
-    let pc = unsafe { hal::asm::get_pc() };
-    const VSCHED_DATA_SIZE: usize = config::SMP * percpu_size_4k_aligned::<TaskInner>();
-    (pc & config::DATA_SEC_MASK) - VSCHED_DATA_SIZE
-}
 
+use crate::VvarDataInner;
+
+// /// Safety:
+// ///     the offset of this function in the `.text`
+// ///     section must be little than 0x1000.
+// ///     The `#[inline(never)]` attribute and the
+// ///     offset requirement can make it work ok.
+// #[inline(never)]
+// #[unsafe(link_section = ".text.start")]
+// #[unsafe(no_mangle)]
+// pub fn get_data_base() -> usize {
+//     let pc = unsafe { hal::asm::get_pc() };
+//     const VSCHED_DATA_SIZE: usize = config::SMP * percpu_size_4k_aligned::<TaskInner>();
+//     (pc & config::DATA_SEC_MASK) - VSCHED_DATA_SIZE
+// }
+// pub fn get_data_base() -> usize {
+//     get_vvar_data!(data, PAGES_SIZE_4K) as *const VvarDataInner as usize
+// }
+
+/// 需要在调用get_run_queue_uninit并初始化相应的runqueue后，才能调用此函数。
 /// Retrieves a `'static` reference to the run queue corresponding to the given index.
 ///
 /// This function asserts that the provided index is within the range of available CPUs
@@ -32,13 +41,24 @@ pub fn get_data_base() -> usize {
 ///
 /// This function will panic if the index is out of bounds.
 ///
+// #[inline]
+// pub fn get_run_queue(index: usize) -> &'static PerCPU {
+//     let per_cpu_base = get_data_base() as *mut u8;
+//     let per_cpu = unsafe { 
+//         &*(per_cpu_base.add(index * percpu_size_4k_aligned::<TaskInner>()) as *mut PerCPU) 
+//     };
+//     per_cpu
+// }
 #[inline]
 pub fn get_run_queue(index: usize) -> &'static PerCPU {
-    let per_cpu_base = get_data_base() as *mut u8;
-    let per_cpu = unsafe { 
-        &*(per_cpu_base.add(index * percpu_size_4k_aligned::<TaskInner>()) as *mut PerCPU) 
-    };
-    per_cpu
+    unsafe { get_vvar_data!(data, PAGES_SIZE_4K).0[index].as_ref_unchecked().assume_init_ref() }
+}
+
+/// 用于初始化runqueue
+/// 只能在runqueue未初始化时调用。
+#[inline]
+pub fn get_run_queue_uninit(index: usize) -> &'static mut MaybeUninit<PerCPU> {
+    unsafe { get_vvar_data!(data, PAGES_SIZE_4K).0[index].as_mut_unchecked() }
 }
 
 /// Puts target task into current run queue with `Ready` state

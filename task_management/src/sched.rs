@@ -19,7 +19,7 @@ pub(crate) fn init_vsched() {
     main_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
     let idle_task = task::new(|| run_idle(), "idle".into(), config::TASK_STACK_SIZE);
     idle_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    vsched_apis::init_vsched(
+    libvsched::init_vsched(
         get_cpu_id(),
         arcext_to_base(idle_task),
         arcext_to_base(main_task),
@@ -32,7 +32,7 @@ pub(crate) fn init_vsched() {
 pub(crate) fn init_vsched_secondary() {
     let idle_task = task::new_init("idle".into());
     idle_task.set_cpumask(AxCpuMask::one_shot(get_cpu_id()));
-    vsched_apis::init_vsched(
+    libvsched::init_vsched(
         get_cpu_id(),
         arcext_to_base(idle_task.clone()),
         arcext_to_base(idle_task),
@@ -40,7 +40,7 @@ pub(crate) fn init_vsched_secondary() {
 }
 
 pub(crate) fn blocked_resched(mut wq_guard: WaitQueueGuard) {
-    let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+    let curr = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
     assert!(curr.is_running());
     assert!(!curr.is_idle());
 
@@ -50,23 +50,23 @@ pub(crate) fn blocked_resched(mut wq_guard: WaitQueueGuard) {
     drop(wq_guard);
 
     log::debug!("task blocked {:?}", curr.name());
-    vsched_apis::resched(get_cpu_id());
+    libvsched::resched(get_cpu_id());
     // clear prev task's on cpu flag and drop it if it is exited。
     let prev_task =
-        unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+        unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
     if prev_task.state() == TaskState::Exited {
         let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
     }
 }
 
 pub(crate) fn exit(exit_code: i32) -> ! {
-    let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+    let curr = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
     assert!(curr.is_running());
     assert!(!curr.is_idle());
     log::debug!("{:?} is exited", curr.name());
     if curr.is_init() {
         // EXITED_TASKS.lock().clear();
-        main_task_exit(0) // 原有的代码就是返回0而非exit_code，暂不清楚原因。
+        main_task_exit(exit_code) // 原有的代码是返回0而非exit_code，暂不清楚原因。
     } else {
         curr.set_state(base_task::TaskState::Exited);
         curr.notify_exit(exit_code);
@@ -74,19 +74,19 @@ pub(crate) fn exit(exit_code: i32) -> ! {
         // WAIT_FOR_EXIT.notify_one(false);
     }
 
-    vsched_apis::resched(get_cpu_id());
+    libvsched::resched(get_cpu_id());
     unreachable!()
 }
 
 /// 所有线程的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
 ///
-/// 此处的`vsched_apis::yield_now`之后为线程的恢复点之一。
+/// 此处的`libvsched::yield_now`之后为线程的恢复点之一。
 #[inline]
 pub(crate) fn yield_now() {
-    vsched_apis::yield_now(get_cpu_id());
+    libvsched::yield_now(get_cpu_id());
     // clear prev task's on cpu flag and drop it if it is exited。
     let prev_task =
-        unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+        unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
     if prev_task.state() == TaskState::Exited {
         let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
     }
@@ -128,10 +128,10 @@ impl Future for YieldFuture {
         let Self { flag } = self.get_mut();
         if !(*flag) {
             *flag = !*flag;
-            let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+            let curr = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
             log::trace!("task yield: {}", curr.id_name());
             assert!(curr.is_running());
-            if vsched_apis::yield_f(get_cpu_id()) {
+            if libvsched::yield_f(get_cpu_id()) {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -181,7 +181,7 @@ impl Future for ExitFuture {
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { exit_code } = self.get_mut();
         let exit_code = *exit_code;
-        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+        let curr = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
         log::debug!("task exit: {}, exit_code={}", curr.id_name(), exit_code);
         assert!(curr.is_running(), "task is not running: {:?}", curr.state());
         assert!(!curr.is_idle());
@@ -195,7 +195,7 @@ impl Future for ExitFuture {
         // EXITED_TASKS.lock().push_back(curr);
         // // Wake up the GC task to drop the exited tasks.
         // WAIT_FOR_EXIT.notify_one(false);
-        assert!(vsched_apis::resched_f(get_cpu_id()));
+        assert!(libvsched::resched_f(get_cpu_id()));
         Poll::Pending
     }
 }
@@ -234,7 +234,7 @@ impl<'a> Future for BlockedReschedFuture<'a> {
         if !(*flag) {
             *flag = !*flag;
             let mut wq_guard = wq.queue.lock();
-            let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+            let curr = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
             assert!(curr.is_running());
             assert!(!curr.is_idle());
             // we must not block current task with preemption disabled.
@@ -257,7 +257,7 @@ impl<'a> Future for BlockedReschedFuture<'a> {
             // see `unblock_task()` for details.
 
             log::debug!("task block: {}", curr.id_name());
-            assert!(vsched_apis::resched_f(get_cpu_id()));
+            assert!(libvsched::resched_f(get_cpu_id()));
             Poll::Pending
         } else {
             Poll::Ready(())

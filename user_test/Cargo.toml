@@ -17,7 +17,8 @@ irq = []
 [dependencies]
 log = "0.4"
 env_logger = "0.9"
-vsched_apis = { workspace = true }
+# vsched_apis = { workspace = true }
+libvsched = { path = "../output/libvsched" }
 config = { workspace = true }
 base_task = { workspace = true }
 utils = { workspace = true }
@@ -29,3 +30,6 @@ page_table_entry = { git = "https://github.com/rosy233333/page_table_entry.git" 
 libc = "0.2"
 include_bytes_aligned = "0.1.4"
 crate_interface = "0.1"
+
+[build-dependencies]
+build_vdso = { path = "../../vdso_crate_template/build_vdso" }

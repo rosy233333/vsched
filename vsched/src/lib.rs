@@ -6,10 +6,21 @@ mod api;
 mod sched;
 pub use api::*;
 
-#[cfg(all(target_os = "linux", not(test)))]
-mod lang_item {
-    #[panic_handler]
-    fn panic(_info: &core::panic::PanicInfo) -> ! {
-        loop {}
+pub use base_task::PerCPU;
+use config::SMP;
+use core::{cell::UnsafeCell, mem::MaybeUninit};
+use vdso_helper::vvar_data;
+
+pub struct VvarDataInner(pub [UnsafeCell<MaybeUninit<PerCPU>>; SMP]);
+
+impl Default for VvarDataInner {
+    fn default() -> Self {
+        Self([const { UnsafeCell::new(MaybeUninit::uninit()) }; SMP])
     }
+}
+
+unsafe impl Sync for VvarDataInner {}
+
+vvar_data! {
+    data: VvarDataInner,
 }

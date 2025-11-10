@@ -9,8 +9,10 @@ members = [
     "vsched",
     "utils",
     "vsched_apis",
-    "task_management",
+    "task_management", "build_test",
 ]
+
+exclude = ["output/vdso_wrapper", "output/libvsched"]
 
 [workspace.package]
 version = "0.0.0"

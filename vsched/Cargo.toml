@@ -7,9 +7,6 @@ description = "Shared Scheduler via vDSO"
 license.workspace = true
 homepage.workspace = true
 
-[lib]
-crate-type = ["cdylib"]
-
 [features]
 
 sched-fifo = ["base_task/sched-fifo"]
@@ -20,3 +17,4 @@ sched-cfs = ["base_task/sched-cfs"]
 hal = { git = "https://github.com/rosy233333/vsched_hal.git" }
 config = { workspace = true }
 base_task = { workspace = true }
+vdso_helper = { path = "../../vdso_crate_template/vdso_helper" }

@@ -5,7 +5,7 @@ use core::{
 };
 
 use crate::{
-    interface::{CPU_NUM, get_cpu_id},
+    interface::get_cpu_id,
     sched::{exit_f, yield_now},
     task_inner_ext::{ArcTaskRef, AxTask, TaskInner, TaskRef, base_to_ext},
     wait_queue::WaitQueue,
@@ -81,12 +81,12 @@ pub fn run_idle() {
 extern "C" fn task_entry() {
     // clear prev task's on cpu flag and drop it if it is exited。
     let prev_task =
-        unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+        unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
     if prev_task.state() == TaskState::Exited {
         let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
     }
     drop(prev_task);
-    let task = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+    let task = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
     if let Some(entry) = task.entry() {
         unsafe { Box::from_raw(*entry)() };
     }
@@ -136,14 +136,14 @@ fn coroutine_schedule() {
     loop {
         // clear prev task's on cpu flag and drop it if it is exited。
         let prev_task =
-            unsafe { base_to_ext(vsched_apis::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
+            unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
         if prev_task.state() == TaskState::Exited {
             let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
         }
         drop(prev_task);
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
-        let curr = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+        let curr = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
 
         let fut = curr
             .inner()
@@ -157,7 +157,7 @@ fn coroutine_schedule() {
         let stack = unsafe { &mut *prev_task.kernel_stack() }
             .take()
             .expect("The stack should be taken out after running.");
-        let next_task = unsafe { base_to_ext(vsched_apis::current(get_cpu_id())) };
+        let next_task = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
         let next_stack = unsafe { &mut *next_task.kernel_stack() };
         if next_stack.is_none() && !next_task.is_init() && !next_task.is_idle() {
             next_stack.replace(stack);

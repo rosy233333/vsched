@@ -5,6 +5,7 @@ use core::pin::Pin;
 use core::str::from_utf8;
 use core::task::{Context, Poll};
 use crate_interface::impl_interface;
+use libvsched::VvarData;
 use memmap2::MmapMut;
 use page_table_entry::MappingFlags;
 use std::cell::RefCell;
@@ -21,7 +22,7 @@ use task_management::{
 
 use xmas_elf::program::SegmentData;
 
-const VSCHED: &[u8] = include_bytes_aligned::include_bytes_aligned!(8, "../../libvsched.so");
+const VSCHED: &[u8] = include_bytes_aligned::include_bytes_aligned!(8, "../../output/libvsched.so");
 
 static CPU_ID_ALLOCATOR: AtomicUsize = AtomicUsize::new(0);
 
@@ -58,8 +59,8 @@ pub struct Vsched {
 
 impl Vsched {
     pub fn percpu(&self, index: usize) -> &PerCPU {
-        let base = self.map.as_ptr() as *const PerCPU;
-        unsafe { &*base.add(index) }
+        let base = self.map.as_ptr() as *const VvarData;
+        unsafe { (&*base).data.0[index].as_ref_unchecked().assume_init_ref() }
     }
 }
 
@@ -70,6 +71,27 @@ pub fn map_vsched() -> Result<Vsched, ()> {
         vsched_map.as_ptr(),
         unsafe { vsched_map.as_ptr().add(VSCHED_DATA_SIZE + 0x40000) }
     );
+
+    log::debug!(
+        "VVAR: VA:{:?}, {:#x}, {:?}",
+        vsched_map.as_ptr(),
+        core::mem::size_of::<VvarData>(),
+        MappingFlags::READ | MappingFlags::WRITE | MappingFlags::USER,
+    );
+    unsafe {
+        if libc::mprotect(
+            vsched_map.as_ptr() as _,
+            core::mem::size_of::<VvarData>(),
+            libc::PROT_READ | libc::PROT_WRITE,
+        ) == libc::MAP_FAILED as _
+        {
+            log::error!("vvar: mprotect res failed");
+            return Err(());
+        }
+    };
+    let vvar = vsched_map.as_ptr() as *const u8 as *mut u8 as *mut () as *mut VvarData;
+    unsafe { vvar.write(VvarData::default()) };
+
     let vsched_so = &mut vsched_map[VSCHED_DATA_SIZE..];
 
     let vsched_elf = xmas_elf::ElfFile::new(VSCHED).expect("Error parsing app ELF file.");
@@ -157,7 +179,7 @@ pub fn map_vsched() -> Result<Vsched, ()> {
         unsafe { core::ptr::copy_nonoverlapping(src.to_ne_bytes().as_ptr(), dst as *mut u8, count) }
     }
 
-    unsafe { vsched_apis::init_vsched_vtable(elf_base_addr.unwrap() as _, &vsched_elf) };
+    unsafe { libvsched::init_vdso_vtable(elf_base_addr.unwrap() as _) };
 
     log::info!("vsched mapped successfully");
     Ok(Vsched { map: vsched_map })

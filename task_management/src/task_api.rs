@@ -32,7 +32,7 @@ where
 
 #[inline]
 pub fn spawn(task_ref: ArcTaskRef) {
-    vsched_apis::spawn(get_cpu_id(), arcext_to_base(task_ref));
+    libvsched::spawn(get_cpu_id(), arcext_to_base(task_ref));
 }
 
 #[inline]
@@ -47,7 +47,7 @@ pub async fn exit_f(exit_code: i32) {
 
 /// 所有线程的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
 ///
-/// 此处的`vsched_apis::yield_now`之后为线程的恢复点之一。
+/// 此处的`libvsched::yield_now`之后为线程的恢复点之一。
 #[inline]
 pub fn yield_now() {
     crate::sched::yield_now()

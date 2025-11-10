@@ -2,3 +2,5 @@
 *.asm
 *.so
 *.log
+out
+output

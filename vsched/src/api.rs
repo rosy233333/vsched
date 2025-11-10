@@ -1,7 +1,8 @@
 use core::mem::MaybeUninit;
 
-use crate::sched::{get_data_base, get_run_queue};
-use base_task::{BaseScheduler, PerCPU, TaskRef, TaskState, percpu_size_4k_aligned};
+use crate::sched::{get_run_queue, get_run_queue_uninit};
+pub use base_task::TaskRef;
+use base_task::{BaseScheduler, PerCPU, TaskState, percpu_size_4k_aligned};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn clear_prev_task_on_cpu(cpu_id: usize) {
@@ -29,14 +30,18 @@ pub extern "C" fn current(cpu_id: usize) -> TaskRef {
 }
 
 /// Initializes the task scheduler (for the primary CPU).
+// #[unsafe(no_mangle)]
+// pub extern "C" fn init_vsched(cpu_id: usize, idle_task: TaskRef, boot_task: TaskRef) {
+//     let per_cpu_base = get_data_base() as *mut u8;
+//     unsafe {
+//         let per_cpu = per_cpu_base.add(cpu_id * percpu_size_4k_aligned::<base_task::TaskInner>())
+//             as *mut MaybeUninit<PerCPU>;
+//         *per_cpu = MaybeUninit::new(PerCPU::new(cpu_id, idle_task, boot_task));
+//     }
+// }
 #[unsafe(no_mangle)]
 pub extern "C" fn init_vsched(cpu_id: usize, idle_task: TaskRef, boot_task: TaskRef) {
-    let per_cpu_base = get_data_base() as *mut u8;
-    unsafe {
-        let per_cpu = per_cpu_base.add(cpu_id * percpu_size_4k_aligned::<base_task::TaskInner>())
-            as *mut MaybeUninit<PerCPU>;
-        *per_cpu = MaybeUninit::new(PerCPU::new(cpu_id, idle_task, boot_task));
-    }
+    get_run_queue_uninit(cpu_id).write(PerCPU::new(cpu_id, idle_task, boot_task));
 }
 
 /// Spawns a new task with the default parameters.

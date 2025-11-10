@@ -63,7 +63,7 @@ disasm: all
 clean:
 	rm -rf $(TARGET_DIR)
 
-utest: all
+utest: 
 	RQ_CAP=${RQ_CAP} SMP=${SMP} RUST_BACKTRACE=1 RUSTFLAGS='-C target-feature=+crt-static' cargo build --bin $(UTEST) --target $(TARGET) --target-dir $(TARGET_DIR) $(build_args-$(MODE))
 	RUST_LOG=$(LOG) qemu-$(ARCH) -D qemu.log -d in_asm,int,mmu,pcall,cpu_reset,page,guest_errors $(UTEST_BIN)
   
