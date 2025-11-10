@@ -64,9 +64,6 @@ impl Vsched {
     }
 }
 
-const A: usize = core::mem::size_of::<VvarData>();
-const B: usize = core::mem::align_of::<VvarData>();
-
 pub fn map_vsched() -> Result<Vsched, ()> {
     let mut vsched_map = MmapMut::map_anon(VSCHED_DATA_SIZE + 0x40000).unwrap();
     log::info!(
