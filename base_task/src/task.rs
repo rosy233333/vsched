@@ -603,7 +603,7 @@ impl TaskStack {
 #[cfg(feature = "alloc")]
 impl Drop for TaskStack {
     fn drop(&mut self) {
-        error!("{:?}", self);
+        warn!("drop stack: {:?}", self);
         unsafe { alloc::alloc::dealloc(self.ptr.as_ptr(), self.layout) }
     }
 }

@@ -133,6 +133,7 @@ fn coroutine_schedule() {
         let next_task = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
         let next_stack = unsafe { &mut *next_task.kernel_stack() };
         if next_stack.is_none() && !next_task.is_init() && !next_task.is_idle() {
+            log::debug!("reuse stack");
             next_stack.replace(stack);
         } else {
             unsafe {
