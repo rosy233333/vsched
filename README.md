@@ -1,129 +1,98 @@
-# `vsched`[^1] 模块的实现
+# 基于vDSO的任务调度模块
 
-## 模块内部实现
+## 功能
 
-目录如下：
+- [x] 基于vDSO的跨地址空间共享
+- [x] 线程调度和协程调度的统一
+- [x] 多核调度
+- [ ] 协程Waker支持
+- [ ] 整合到AsyncOS中
+- [ ] 进程调度
+  
+## 项目结构
 
-```shell
-├── Cargo.toml
-└── src
-    ├── api.rs
-    ├── lib.rs
-    ├── percpu.rs
-    ├── sched.rs
-    └── task.rs
+![](./assets/vsched重构后项目结构.png)
+
+最重要的模块为`vsched`和`task_management`。
+
+**`vsched`**：实现为vdso共享库。其功能包括：
+
+- 定义任务的基础数据结构`BaseTask`（其中，协程的定义需要外部提供`alloc_stack`和`coroutine_schedule`函数，因为不同地址空间的这些函数可能有不同的实现）
+- 每个CPU核心的就绪队列的维护
+- 从线程到线程/协程的切换
+
+**`task_management`**：实现为普通库。其功能包括：
+
+- 定义任务的延申数据结构`TaskExt`
+- 协程相关操作（如让出、阻塞）对应的`Future`（因为`vDSO`的接口只能为普通函数，因此协程的相应接口需要在`vDSO`外部加一层`Future`包装）
+- 协程的`alloc_stack`和`coroutine_schedule`函数
+- 适用于线程和协程的阻塞队列
+- 线程和协程的`join`操作（如果是使用相同辅助库的任务，就可以互相join）
+
+`base_task`和`scheduler`为`vsched`的依赖库。**`base_task`** 定义了`BaseTask`任务结构，**`scheduler`** 定义了多种任务无关的调度器，同时也为任务做了一层包装以保存调度信息。
+
+**`user_test`** 为用户态的测试代码，测试了 `init`、`spawn`、`yield`、`wait`、`multi_thread`，以及一个覆盖所有内容的`all`测例。
+
+## 任务模型
+
+任务数据结构如下图：
+
+![](./assets/vsched任务模型（新）.png)
+
+**`TaskInnerExt`**：在`task_management`中定义，对`vsched`不可见。主要包括用于退出和`join`的退出代码和退出等待队列，以及线程入口点和`Future`（协程上下文）。
+
+**`TaskInner`（的其它字段）**：在`base_task`中定义，对`vsched`和`task_management`均可见。主要包括任务状态、使用的栈和线程上下文。
+
+**`Task`**：在`scheduler`中定义，相较于TaskInner增加了调度器信息。
+
+**`TaskRef`**：在`scheduler`中定义，在`vsched`中使用的任务指针。不管理引用计数。
+
+**`ArcTaskRef`**：在`task_management`中定义，在`task_management`中使用的任务指针。管理任务的引用计数。`ArcTaskRef`通过`Arc::into_raw`转化为`TaskRef`（引用计数不变）并放入调度器。当任务退出时，再转化回`ArcTaskRef`，释放该引用计数。
+
+## 任务切换与阻塞
+
+由于vDSO对API的限制，在任务实际切换时采用了“线程切换在`vsched`中进行，协程切换在`task_management`中进行”的策略。但与任务切换相关的设置任务状态与调度器状态的过程，都需要两个模块配合完成。
+
+协程的调度循环为`task_management::task::coroutine_schedule`函数。
+
+具体的任务切换与阻塞流程如下：
+
+### 任务的切换
+
+线程 -> 线程：
+
+`vsched::api::yield_now` -> `vsched::sched::yield_current`: 先维护就绪队列，再调用`resched` -> `vsched::sched::resched` -> `vsched::sched::switch_to` -> `(*prev_ctx_ptr).switch_to(&*next_ctx_ptr)`: 真正的上下文切换过程
+
+线程 -> 协程：
+
+同上，但是在`vsched::sched::switch_to`函数中，在上下文切换前，调用`next_task.set_kstack`（`next_task: TaskRef`） -> `base_task::TaskInner::set_kstack`: 根据协程的`alloc_stack_fn`字段指向的函数分配内核栈；根据协程的`coroutine_schedule`字段指向的函数设置任务上下文的入口点。
+
+协程 -> 线程：
+
+`user_test::vsched::yield_now_f` -> `YieldFuture::new().await` -> `user_test::vsched::YieldFuture::poll`: 先调用`vsched::api::yield_f`仅维护就绪队列和任务状态不执行实际切换，再返回`poll::Pending`至`user_test::task::coroutine_schedule` -> `user_test::task::coroutine_schedule`: 先通过`vsched::api::current`获取下一个要执行的任务，再通过`(*prev_ctx_ptr).switch_to(&*next_ctx_ptr)`执行上下文切换。
+
+协程 -> 协程：
+
+同上，但是在`user_test::task::coroutine_schedule`函数中，在上下文切换前，将自己已用完的栈传递给下一个协程。并且，不进行线程式的上下文切换，而是直接回到循环开始，运行下一个协程的`Future::poll`。
+
+### 任务的阻塞
+
+线程的阻塞：
+
+`user_test::wait_queue::WaitQueue::wait` -> `user_test::vsched::blocked_resched`: 先将任务加入阻塞队列，再调用`vsched_apis::resched` -> `vsched::api::resched` -> `vsched::sched::resched`，之后同任务切换过程
+
+协程的阻塞：
+
+`user_test::wait_queue::WaitQueue::wait` -> `BlockedReschedFuture::new(self).await` -> `user_test::vsched::BlockedReschedFuture::poll`: 先将任务加入阻塞队列，之后调用`vsched_apis::resched_f`仅维护就绪队列不执行实际切换，之后的切换过程同协程的切换。
+
+（协程的阻塞没有使用`Waker`相关机制，且`user_test::task::coroutine_schedule`函数中使用的`Waker`也是`Waker::noop`，因此该协程调度器不支持基于`Waker`的协程阻塞。）
+
+## 测试
+
+测试命令：
+
+```
+UTEST=[测例名称，即为user_test/src/bin中的文件名] make utest
 ```
 
-1. `api.rs` 中实现了模块内部向外暴露的接口[^2]。
-2. `lib.rs` 中实现了获取数据段基址的方法 `get_data_base`，这里通过 `#[inline(never)]` 以及确保其在代码段中的偏移小于 0x1000 来获取到数据段的基址。
-3. `percpu.rs` 中定义了 percpu 调度需要的 `PerCPU` 数据结构。
-4. `sched.rs` 中提供了 `api.rs` 中暴露的接口的具体实现。
-5. `task.rs` 中定义了最基础的任务控制块的结构 `TaskInner`[^3]。
-
-### 接口
-
-**vsched 模块暴露的接口的具体实现见[此处](https://github.com/AsyncModules/vsched/tree/main/vsched)。**
-
-#### 模块初始化相关的接口
-
-1. `pub extern "C" fn init_vsched(cpu_id: usize, idle_task: BaseTaskRef);`
-2. `pub extern "C" fn init_vsched_secondary(cpu_id: usize, idle_task: BaseTaskRef);`
-
-这两个接口用于初始化 vsched 模块使用的 PerCPU 数据，包括 cpu_id，就绪任务队列，当前任务等。
-
-
-
-#### 任务状态相关的接口
-
-1. `pub extern "C" fn spawn(task_ref: BaseTaskRef) -> BaseTaskRef;`：创建 $\rightarrow$ 就绪
-2. `pub extern "C" fn yield_now(cpu_id: usize);`：运行 $\rightarrow$ 就绪
-3. `pub extern "C" fn unblock_task(task: BaseTaskRef, resched: bool, src_cpu_id: usize, dst_cpu_id: usize);`：阻塞 $\rightarrow$ 就绪
-4. `pub extern "C" fn resched(cpu_id: usize);`：这个接口会导致当前任务运行 $\rightarrow$ 阻塞/退出态，下一个任务就绪 $\rightarrow$ 运行。暴露这个接口，是因为当前任务的状态转换（例如运行 $\rightarrow$ 阻塞 blocked_resched、运行 $\rightarrow$ 退出 exit）需要将任务队列保存在进程各自的私有的阻塞队列中，需要外部库操作了私有队列之后，再调用这个接口进行调度。
-5. `pub extern "C" fn resched_f(cpu_id: usize) -> bool;`：同 `resched`，但其用于协程调度。
-6. `pub extern "C" fn switch_to(cpu_id: usize, prev_task: &BaseTaskRef, next_task: BaseTaskRef);`：进行任务迁移时，需要直接使用这个接口，而不是使用 `resched` 接口。
-
-
-
-#### 与任务相关的接口
-
-1. `pub extern "C" fn prev_task(cpu_id: usize) -> BaseTaskRef;`：获取 CPU 上运行的前一个任务，通过 `prev_task.on_cpu()` 来保证调度时，不会出现同一个任务在多个 CPU 上运行；
-
-2. `pub extern "C" fn current(cpu_id: usize) -> BaseTaskRef;`：获取 CPU 上正在运行的任务；
-
-3. `pub extern "C" fn set_priority(prio: isize, cpu_id: usize) -> bool;`：设置 CPU 上正在运行的任务的优先级；
-
-
-
-### 位置无关的无锁任务队列
-
-在描述无锁任务队列之前，先说明任务控制块。任务控制块除了 `TaskInner` 中的字段外，其余的扩展字段按照 Arceos 中的方式，都通过 task_ext 字段来记录其指针。因此不同的地址空间、特权级下的任务都具有相同的 TaskInner 接口，具体的不同则是在 task_ext 字段记录的指针所指向的不同的 `TaskExt` 结构。
-
-无锁任务队列中则保存 TaskInner 的指针，通过这种方式实现了不同地址空间和特权级的任务都可以保存在同一个任务队列，通过同一个调度器进行调度和任务切换。
-
-使用的无锁数据结构见[此处](https://github.com/AsyncModules/vsched/tree/main/utils)，调度器的实现见[此处](https://github.com/AsyncModules/vsched/tree/main/scheduler)，实现了 `fifo`、`round-robin`、`cfs` 调度器。
-
-
-
-### 任务上下文
-
-任务上下文 `TaskContext` 定义在[此处](https://github.com/AsyncModules/vsched/tree/main/hal)，但是目前还不完善，因为没有增加地址空间和特权级等字段，只包含函数调用所规定的通用寄存器的结构，后续需要继续完善。
-
-上下文切换也只切换通用寄存器，不会对 tls、页表等进行操作。
-
-后续需要根据地址空间和特权级进行不同的切换（以下的描述不完整，请忽略）：
-
-1. **同地址空间、不切换特权级**：**两个任务都属于同一个进程、且都处于用户态**，切换时，只禁用抢占，不对中断进行操作，允许发生中断；**两个任务都属于同一个进程、且都处于内核态**，切换时禁用中断和抢占；
-2. **同地址空间、切换特权级**：**两个任务属于同一个进程、但属于不同的地址空间**，使用当前 Arceos 中的陷入和返回用户态的方式即可；
-3. **不同地址空间、不切换特权级**：**两个任务属于不同的地址空间，但都处于内核态**，切换时关闭中断且禁用抢占；
-4. **不同地址空间、切换特权级**：两个任务属于不同地址空间，但都处于用户态，这种切换可节省在内核中的路径，进行快速切换。这里看不到下一个任务的标识，只能通过看到操作系统标识和进程标识，进程标识，看不到任务标识，需要陷入到 S 态，才可以看到下一个任务的标识。
-
-
-
-## 接口层 vsched_apis
-
-这是 vsched 提供给外部库使用的接口层，实现见[此处](https://github.com/AsyncModules/vsched/tree/main/vsched_apis)，通过 build.rs 自动化构建，不需要手动进行修改。
-
-
-
-## 用户态测试 user_test
-
-测试在标准库环境下进行，实现了一个基于 vsched 的用户态的任务运行时，见[此处](https://github.com/AsyncModules/vsched/tree/main/user_test)。
-
-测试只能在 linux 环境下运行，因为需要通过 qemu-$(ARCH) 用户态模拟环境来，mac 上缺少支持。编译测试时静态链接了标准库环境。
-
-
-
-### 用户态的任务控制块
-
-任务控制块的定义见[此处](https://github.com/AsyncModules/vsched/blob/main/user_test/src/task.rs)，一些方法（例如 join）需要通过 `TaskExt` 和 `TaskInner` 相互配合。
-
-
-
-### 用户态运行时
-
-见[此处](https://github.com/AsyncModules/vsched/blob/main/user_test/src/vsched.rs)，这里提供了 `exit`、`blocked_resched` 接口，并配合 `vsched_apis` 暴露的 `spawn`、`yield`、`unblock_task` 实现了完整的任务调度运行时。
-
-[`wait_queue`](https://github.com/AsyncModules/vsched/blob/main/user_test/src/wait_queue.rs) 利用上一段描述的 `blocked_resched` 接口实现了阻塞队列，提供了 `wait`、`wait_until` 等方法，但实现不完善。
-
-此外这里提供了初始化运行时的方法。
-
-
-
-### 测试用例
-
-测试用例见[此处](https://github.com/AsyncModules/vsched/tree/main/user_test/src/bin)，测试了 `init`、`spawn`、`yield`、`wait`、`multi_thread`。其中 `multi_thread` 通过创建两个线程，每个线程使用一个 vsched 的调度器，进行并行测试，目前测试逻辑还比较简单。
-
-
-
-[^1]: vsched：vDSO based scheduling（基于 vDSO 的调度）。
-[^2]: 暴露的接口需要使用 `#[unsafe(no_mangle)]` 属性标记，否则不会生成对应的动态符号表项。
-[^3]: `TaskInner` 只包括 id、状态、上下文、扩展字段等基础的信息，除扩展字段外，其余的字段用于模块内部的调度和切换。
-
-
-
-
-
-
-
-
-
+或运行`test.sh`，会测试`yield`、`wait`和`smp`三项。

@@ -193,7 +193,9 @@ impl Future for ExitFuture {
 ///
 /// When polling this future, current task will be put into the wait queue and reschedule,
 /// the state of current task will be marked as `Blocked`, set the `in_wait_queue` flag as true.
+///
 /// Note:
+///
 ///     1. When polling this future, the wait queue is locked.
 ///     2. When polling this future, the current task is in the running state.
 ///     3. When polling this future, the current task is not the idle task.

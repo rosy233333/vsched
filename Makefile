@@ -1,4 +1,4 @@
-ARCH ?= x86_64
+ARCH ?= riscv64
 SMP ?= 1
 MODE ?= release
 V ?=

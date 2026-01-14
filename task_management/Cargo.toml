@@ -27,7 +27,6 @@ crossbeam = { version = "0.8", default-features = false }
 config = { workspace = true }
 log = "0.4"
 kspin = "0.1"
-# vsched_apis = { workspace = true }
 libvsched = { path = "../output/libvsched" }
 crate_interface = "0.1"
 cpumask = "0.1"

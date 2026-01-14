@@ -17,7 +17,6 @@ irq = []
 [dependencies]
 log = "0.4"
 env_logger = "0.9"
-# vsched_apis = { workspace = true }
 libvsched = { path = "../output/libvsched" }
 config = { workspace = true }
 base_task = { workspace = true }
