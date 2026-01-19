@@ -4,11 +4,13 @@ use crate::sched::{get_run_queue, get_run_queue_uninit};
 pub use base_task::TaskRef;
 use base_task::{BaseScheduler, PerCPU, TaskState, percpu_size_4k_aligned};
 
+/// 将调度器的上一任务的`on_cpu`字段清除
 #[unsafe(no_mangle)]
 pub extern "C" fn clear_prev_task_on_cpu(cpu_id: usize) {
     crate::sched::clear_prev_task_on_cpu(get_run_queue(cpu_id));
 }
 
+/// 将调度器的上一任务的`on_cpu`字段清除并返回该任务引用
 #[unsafe(no_mangle)]
 pub extern "C" fn take_prev_task_and_clear_on_cpu(cpu_id: usize) -> TaskRef {
     crate::sched::take_prev_task_and_clear_on_cpu(get_run_queue(cpu_id))
@@ -96,16 +98,22 @@ pub extern "C" fn preempt_current(cpu_id: usize) {
     crate::sched::preempt_current(get_run_queue(cpu_id));
 }
 
+/// 线程重调度
 #[unsafe(no_mangle)]
 pub extern "C" fn resched(cpu_id: usize) {
     crate::sched::resched(get_run_queue(cpu_id));
 }
 
+/// 切换线程
 #[unsafe(no_mangle)]
 pub extern "C" fn switch_to(cpu_id: usize, prev_task: &TaskRef, next_task: TaskRef) {
     crate::sched::switch_to(get_run_queue(cpu_id), prev_task, next_task);
 }
 
+/// Core reschedule subroutine.
+/// Pick the next task to run and switch to it.
+/// This function is only used in `yield_f`, `YieldFuture`, `ExitFuture`,
+/// `SleepUntilFuture` and `BlockedReschedFuture`.
 #[unsafe(no_mangle)]
 pub extern "C" fn resched_f(cpu_id: usize) -> bool {
     crate::sched::resched_f(get_run_queue(cpu_id))

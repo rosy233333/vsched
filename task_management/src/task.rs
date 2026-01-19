@@ -1,3 +1,5 @@
+//! 对任务的操作封装，以及一些在线程/协程调度中使用的函数实现。
+
 use core::{
     array,
     mem::{ManuallyDrop, MaybeUninit},
@@ -45,14 +47,18 @@ pub(crate) fn new_init(name: String) -> ArcTaskRef {
     Arc::new(AxTask::new(t))
 }
 
+/// 用于idle任务的入口点
 pub fn run_idle() {
     loop {
         yield_now();
     }
 }
 
+/// 对线程入口函数的包装
 extern "C" fn task_entry() {
-    // clear prev task's on cpu flag and drop it if it is exited。
+    // 所有任务的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
+    //
+    // 此处为任务的恢复点之一。
     let prev_task =
         unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
     if prev_task.state() == TaskState::Exited {
@@ -66,6 +72,7 @@ extern "C" fn task_entry() {
     crate::sched::exit(0);
 }
 
+/// 每个CPU维护一个协程栈池，避免频繁分配和释放栈空间。
 struct PerCPUStackPool([SpinNoIrq<Vec<TaskStack>>; SMP]);
 
 impl PerCPUStackPool {
@@ -104,10 +111,13 @@ fn recycle_stack_of_coroutine(stack: TaskStack) {
     COROUTINE_STACK_POOL.lock().push(stack)
 }
 
+/// 协程调度主循环
 fn coroutine_schedule() {
     use core::task::{Context, Waker};
     loop {
-        // clear prev task's on cpu flag and drop it if it is exited。
+        // 所有任务的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
+        //
+        // 此处为任务的恢复点之一。
         let prev_task =
             unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
         if prev_task.state() == TaskState::Exited {

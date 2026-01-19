@@ -1,3 +1,12 @@
+//! 初始化vsched，并基于vsched实现任务相关操作：
+//!
+//! - 线程的让出（[`yield_now`]）、阻塞（[`blocked_resched`]）和退出（[`exit`]）
+//! - 协程的让出（[`yield_now_f`]）、阻塞（[`BlockedReschedFuture`]）和退出（[`exit_f`]）
+//!
+//! 本模块在上述操作中负责的部分为：任务状态与调度器状态的维护、协程接口的Future包装。
+//!
+//! 本模块没有对外API。
+
 use core::{
     mem::ManuallyDrop,
     pin::Pin,
@@ -47,8 +56,10 @@ pub(crate) fn blocked_resched(mut wq_guard: WaitQueueGuard) {
     drop(wq_guard);
 
     log::debug!("task blocked {:?}", curr.name());
+    // 所有任务的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
+    //
+    // 此处的`libvsched::resched`之后为任务的恢复点之一。
     libvsched::resched(get_cpu_id());
-    // clear prev task's on cpu flag and drop it if it is exited。
     let prev_task =
         unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
     if prev_task.state() == TaskState::Exited {
@@ -72,13 +83,12 @@ pub(crate) fn exit(exit_code: i32) -> ! {
     unreachable!()
 }
 
-/// 所有线程的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
-///
-/// 此处的`libvsched::yield_now`之后为线程的恢复点之一。
 #[inline]
 pub(crate) fn yield_now() {
+    // 所有任务的恢复点都需要释放上一个任务的Arc引用，并清除其on_cpu标志。
+    //
+    // 此处的`libvsched::yield_now`之后为任务的恢复点之一。
     libvsched::yield_now(get_cpu_id());
-    // clear prev task's on cpu flag and drop it if it is exited。
     let prev_task =
         unsafe { base_to_ext(libvsched::take_prev_task_and_clear_on_cpu(get_cpu_id())) };
     if prev_task.state() == TaskState::Exited {

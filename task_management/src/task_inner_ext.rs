@@ -1,3 +1,8 @@
+//! 任务数据结构[`AxTask`]、[`TaskInner`]、[`TaskInnerExt`]，
+//! 以及任务的引用[`TaskRef`]、[`ArcTaskRef`]的定义和相关操作。
+//!
+//! 详见[README.md#任务模型](https://github.com/rosy233333/vsched/blob/refact/README.md#%E4%BB%BB%E5%8A%A1%E6%A8%A1%E5%9E%8B)
+
 extern crate alloc;
 
 use crate::wait_queue::WaitQueue;
@@ -13,9 +18,15 @@ use core::{
 use crossbeam::atomic::AtomicCell;
 use log::debug;
 
+/// 任务数据结构，由[`TaskInner`]经过调度器包装得到
 pub type AxTask = scheduler::BaseTask<TaskInner>;
+/// 不包含引用计数的任务引用，在vsched内部使用
 pub type TaskRef = scheduler::BaseTaskRef<TaskInner>;
+/// 包含引用计数的任务引用，在vsched外部使用
+pub type ArcTaskRef = Arc<AxTask>;
 
+/// 任务数据结构。
+///
 /// 在vdso外部，inner和ext均为可见
 ///
 /// 在vdso内部，仅有inner可见
@@ -27,6 +38,7 @@ pub struct TaskInner {
     ext: TaskInnerExt,
 }
 
+/// 任务的扩展数据结构，对vsched不可见
 #[repr(C)]
 pub struct TaskInnerExt {
     name: String,
@@ -76,7 +88,7 @@ impl TaskInner {
     ///
     /// And there is no need to set the `entry`, `kstack` or `tls` fields, as
     /// they will be filled automatically when the task is switches out.
-    pub fn new_init(name: String) -> Self {
+    pub(crate) fn new_init(name: String) -> Self {
         Self {
             inner: base_task::TaskInner::new_init(name == "idle"),
             ext: TaskInnerExt::new_common(name),
@@ -87,7 +99,7 @@ impl TaskInner {
     ///
     /// - entry: 用户想要创建的任务函数
     /// - task_entry: 任务真正的入口点，通常包含初始化、调用entry和清理等逻辑
-    pub fn new<F>(entry: F, task_entry: usize, name: String, stack_size: usize) -> Self
+    pub(crate) fn new<F>(entry: F, task_entry: usize, name: String, stack_size: usize) -> Self
     where
         F: FnOnce() + Send + 'static,
     {
@@ -101,7 +113,10 @@ impl TaskInner {
         t
     }
 
-    pub fn new_f<F>(
+    /// 创建一个协程。
+    ///
+    /// 除了`Future`外，还需要提供分配栈的函数和协程调度函数。
+    pub(crate) fn new_f<F>(
         future: F,
         name: String,
         alloc_stack: fn() -> TaskStack,
@@ -138,21 +153,22 @@ impl DerefMut for TaskInner {
 
 /// 获取ext中的字段
 impl TaskInner {
-    /// Gets the name of the task.
+    /// 任务名称
     pub fn name(&self) -> &str {
         self.ext.name.as_str()
     }
 
+    /// 任务名称与ID
     pub fn id_name(&self) -> String {
         format!("Task({}, {:?})", self.inner.id().as_u64(), self.ext.name)
     }
 
-    /// Gets the entry of the task.
+    /// 任务入口点
     pub const fn entry(&self) -> &Option<*mut dyn FnOnce()> {
         &self.ext.entry
     }
 
-    /// Gets the future of the task.
+    /// 获取任务的协程上下文，如果任务不是协程则返回None。
     pub const fn future(
         &self,
     ) -> &mut Option<core::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>> {
@@ -176,6 +192,7 @@ impl TaskInner {
         self.ext.cpumask.store(cpumask);
     }
 
+    /// 为任务选择一个可运行的CPU。
     #[inline]
     pub fn select_run_queue_index(&self) -> usize {
         use core::sync::atomic::{AtomicUsize, Ordering};
@@ -193,16 +210,19 @@ impl TaskInner {
         }
     }
 
+    /// 退出代码
     #[inline]
     pub fn exit_code(&self) -> i32 {
         self.ext.exit_code.load(Ordering::Acquire)
     }
 
+    /// 设置退出代码
     #[inline]
     pub fn set_exit_code(&self, exit_code: i32) {
         self.ext.exit_code.store(exit_code, Ordering::Release);
     }
 
+    /// 获取等待任务退出的等待队列引用。
     #[inline]
     pub fn wait_queue(&self) -> &WaitQueue {
         &self.ext.wait_for_exit
@@ -214,6 +234,7 @@ impl TaskInner {
         self.ext.wait_for_exit.notify_all(false);
     }
 
+    /// 使当前线程等待该任务退出，返回退出代码。
     pub fn join(&self) -> Option<i32> {
         self.ext
             .wait_for_exit
@@ -221,6 +242,7 @@ impl TaskInner {
         Some(self.ext.exit_code.load(Ordering::Acquire))
     }
 
+    /// 使当前协程等待该任务退出，返回退出代码。
     pub async fn join_f(&self) -> Option<i32> {
         self.ext
             .wait_for_exit
@@ -236,7 +258,7 @@ impl Drop for TaskInner {
     }
 }
 
-/// 用于将从调度器中获得的`base_task::TaskRef`转化为`TaskRef`引用（从而可访问ext字段）
+/// 将从调度器中获得的`base_task::TaskRef`转化为`TaskRef`引用（从而可访问ext字段）
 ///
 /// 因为两种`TaskRef`内部都以指针方式存储，且除`ext`以外两种任务数据结构相同，因此可以直接使用`core::mem::transmute`转化
 ///
@@ -246,7 +268,7 @@ pub unsafe fn base_to_ext(base_ref: base_task::TaskRef) -> TaskRef {
     unsafe { core::mem::transmute(base_ref) }
 }
 
-/// 用于将本库的`TaskRef`转化为调度器使用的`TaskRef`
+/// 将本库的`TaskRef`转化为调度器使用的`TaskRef`
 ///
 /// 该转化会导致`ext`字段不可访问，直到使用`base_to_exted`转化回来
 ///
@@ -256,13 +278,18 @@ pub fn ext_to_base(ext_ref: TaskRef) -> base_task::TaskRef {
     unsafe { core::mem::transmute(ext_ref) }
 }
 
-pub type ArcTaskRef = Arc<AxTask>;
-
+/// 将从调度器中获得的`base_task::TaskRef`转化为`ArcTaskRef`引用（从而可访问ext字段并维护引用计数）
+///
+/// SAFETY: 目前，需要保证所有调度器中的TaskRef全部由该库提供（即使用了该库的ext字段）
 #[inline]
 pub unsafe fn base_to_arcext(base_ref: base_task::TaskRef) -> ArcTaskRef {
     ManuallyDrop::into_inner(unsafe { base_to_ext(base_ref) }.into_arc())
 }
 
+/// 将本库的`ArcTaskRef`转化为调度器使用的`TaskRef`
+///
+/// 使用`Arc::into_raw`，因此该转化不会改变引用计数，
+/// 也需要在任务结束后使用`base_to_arcext`转化回来以正确释放引用计数。
 #[inline]
 pub fn arcext_to_base(ext_ref: ArcTaskRef) -> base_task::TaskRef {
     let ext = TaskRef::new(Arc::into_raw(ext_ref));

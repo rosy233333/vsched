@@ -1,3 +1,5 @@
+//! 阻塞队列的实现
+
 use crate::{
     interface::get_cpu_id,
     sched::{BlockedReschedFuture, blocked_resched},
@@ -6,10 +8,13 @@ use crate::{
 use alloc::{collections::VecDeque, vec::Vec};
 use kspin::{SpinNoIrq, SpinNoIrqGuard};
 
+/// 阻塞队列，可用于阻塞线程或协程。
 pub struct WaitQueue {
+    /// 队列
     pub queue: SpinNoIrq<VecDeque<TaskRef>>,
 }
 
+/// 阻塞队列的锁保护引用。
 pub type WaitQueueGuard<'a> = SpinNoIrqGuard<'a, VecDeque<TaskRef>>;
 
 impl WaitQueue {
