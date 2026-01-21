@@ -9,30 +9,31 @@ members = [
     "vsched",
     "utils",
     "vsched_apis",
-    "task_management", "build_test",
+    "task_management",
+    "build_test",
 ]
 
 exclude = ["output/vdso_wrapper", "output/libvsched"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.1"
 edition = "2024"
-authors = ["Fangliang Zhao <1491657576@qq.com>"]
+authors = ["Fangliang Zhao <1491657576@qq.com>", "rosy <lc_rosy@qq.com>"]
 license = "GPL-3.0-or-later OR Apache-2.0 OR MulanPSL-2.0"
-homepage = "https://github.com/arceos-org/arceos"
-documentation = "https://arceos-org.github.io/arceos"
-repository = "https://github.com/arceos-org/arceos"
-keywords = ["vdso", "task scheduling"]
+homepage = "https://github.com/rosy233333/vsched"
+documentation = "https://github.com/rosy233333/vsched/blob/main/README.md"
+repository = "https://github.com/rosy233333/vsched"
+keywords = ["vdso", "scheduling"]
 categories = ["os", "no-std"]
 
 
 [workspace.dependencies]
-scheduler = { path = "scheduler" }
+scheduler = { version = "0.2", package = "vsched_scheduler" }
 vsched = { path = "vsched" }
-config = { path = "config" }
+config = { version = "0.1", package = "vsched_config" }
 user_test = { path = "user_test" }
-base_task = { path = "base_task" }
-utils = { path = "utils" }
+base_task = { version = "0.1", package = "vsched_base_task" }
+utils = { version = "0.1", package = "vsched_utils" }
 vsched_apis = { path = "vsched_apis" }
 task_management = { path = "task_management" }
 

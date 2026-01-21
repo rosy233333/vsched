@@ -49,21 +49,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "base_task"
-version = "0.0.0"
-dependencies = [
- "cfg-if",
- "config",
- "crossbeam",
- "hal",
- "kernel_guard",
- "kspin",
- "log",
- "memory_addr 0.4.0",
- "scheduler",
-]
-
-[[package]]
 name = "bit_field"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -89,7 +74,7 @@ checksum = "a1d084b0137aaa901caf9f1e8b21daa6aa24d41cd806e111335541eff9683bd6"
 
 [[package]]
 name = "build_test"
-version = "0.0.0"
+version = "0.1.1"
 dependencies = [
  "build_vdso",
 ]
@@ -113,14 +98,6 @@ name = "cfg-if"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fd1289c04a9ea8cb22300a459a72a385d7c73d3259e2ed7dcb2af674838cfa9"
-
-[[package]]
-name = "config"
-version = "0.0.0"
-dependencies = [
- "cpumask",
- "regex",
-]
 
 [[package]]
 name = "cpumask"
@@ -193,22 +170,6 @@ dependencies = [
  "log",
  "regex",
  "termcolor",
-]
-
-[[package]]
-name = "hal"
-version = "0.0.0"
-source = "git+https://github.com/rosy233333/vsched_hal.git#be4f44ef8e66f99a6ea06ca1411e505b1a1b1a5c"
-dependencies = [
- "aarch64-cpu 10.0.0",
- "cfg-if",
- "linkme",
- "memory_addr 0.4.0",
- "page_table_entry 0.1.0",
- "riscv",
- "static_assertions",
- "x86",
- "x86_64",
 ]
 
 [[package]]
@@ -458,17 +419,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
-name = "scheduler"
-version = "0.2.1"
-dependencies = [
- "cfg-if",
- "config",
- "crossbeam",
- "heapless",
- "utils",
-]
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -493,17 +443,17 @@ dependencies = [
 
 [[package]]
 name = "task_management"
-version = "0.0.0"
+version = "0.1.1"
 dependencies = [
- "base_task",
- "config",
  "cpumask",
  "crate_interface",
  "crossbeam",
  "kspin",
  "libvsched",
  "log",
- "scheduler",
+ "vsched_base_task 0.1.0",
+ "vsched_config 0.1.0",
+ "vsched_scheduler 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -535,11 +485,9 @@ checksum = "f63a545481291138910575129486daeaf8ac54aee4387fe7906919f7830c7d9d"
 
 [[package]]
 name = "user_test"
-version = "0.0.0"
+version = "0.1.1"
 dependencies = [
- "base_task",
  "build_vdso",
- "config",
  "crate_interface",
  "elf_parser",
  "env_logger",
@@ -550,17 +498,17 @@ dependencies = [
  "memmap2",
  "page_table_entry 0.1.0",
  "task_management",
- "utils",
+ "vsched_base_task 0.1.0",
+ "vsched_config 0.1.0",
+ "vsched_utils 0.1.0",
  "xmas-elf",
 ]
 
 [[package]]
-name = "utils"
-version = "0.0.0"
-
-[[package]]
 name = "vdso_helper"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99a7e815c5cb2283eaddfd8179d96b4233ff7f7615eba7be55a22ccfd2b96cff"
 dependencies = [
  "vsched_hal",
 ]
@@ -573,22 +521,72 @@ checksum = "442887c63f2c839b346c192d047a7c87e73d0689c9157b00b53dcc27dd5ea793"
 
 [[package]]
 name = "vsched"
-version = "0.0.0"
+version = "0.1.1"
 dependencies = [
- "base_task",
- "config",
- "hal",
  "vdso_helper",
+ "vsched_base_task 0.1.0",
+ "vsched_config 0.1.0",
+ "vsched_hal",
 ]
 
 [[package]]
 name = "vsched_apis"
-version = "0.0.0"
+version = "0.1.1"
 dependencies = [
- "base_task",
  "log",
  "regex",
+ "vsched_base_task 0.1.0",
  "xmas-elf",
+]
+
+[[package]]
+name = "vsched_base_task"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eda82a2c9e392468af7d834f8eea1b4681389ed007e39e1cedbb34c9626c8919"
+dependencies = [
+ "cfg-if",
+ "crossbeam",
+ "kernel_guard",
+ "kspin",
+ "log",
+ "memory_addr 0.4.0",
+ "vsched_config 0.1.0",
+ "vsched_hal",
+ "vsched_scheduler 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "vsched_base_task"
+version = "0.1.1"
+dependencies = [
+ "cfg-if",
+ "crossbeam",
+ "kernel_guard",
+ "kspin",
+ "log",
+ "memory_addr 0.4.0",
+ "vsched_config 0.1.0",
+ "vsched_hal",
+ "vsched_scheduler 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "vsched_config"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed8e36a422075adf8db1254036e1cee1f8a051bcb1da31579798d95b9200ed9"
+dependencies = [
+ "cpumask",
+ "regex",
+]
+
+[[package]]
+name = "vsched_config"
+version = "0.1.1"
+dependencies = [
+ "cpumask",
+ "regex",
 ]
 
 [[package]]
@@ -607,6 +605,40 @@ dependencies = [
  "x86",
  "x86_64",
 ]
+
+[[package]]
+name = "vsched_scheduler"
+version = "0.2.1"
+dependencies = [
+ "cfg-if",
+ "crossbeam",
+ "heapless",
+ "vsched_config 0.1.0",
+ "vsched_utils 0.1.0",
+]
+
+[[package]]
+name = "vsched_scheduler"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76161ddd155174bda3621144918dd38a41412068f415f034d428c39276af5918"
+dependencies = [
+ "cfg-if",
+ "crossbeam",
+ "heapless",
+ "vsched_config 0.1.0",
+ "vsched_utils 0.1.0",
+]
+
+[[package]]
+name = "vsched_utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cf6d0b70c349a1d4cdf28033f9d103e217ded3afb34ca6c99303f7c8496a81"
+
+[[package]]
+name = "vsched_utils"
+version = "0.1.1"
 
 [[package]]
 name = "winapi"

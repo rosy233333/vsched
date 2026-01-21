@@ -1,5 +1,5 @@
 [package]
-name = "utils"
+name = "vsched_utils"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -9,5 +9,7 @@ documentation.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
+description = "vsched的依赖库，提供了无锁的btreemap和deque"
+readme = "../README.md"
 
 [dependencies]

@@ -1,5 +1,5 @@
 [package]
-name = "base_task"
+name = "vsched_base_task"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -9,6 +9,8 @@ documentation.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
+description = "vsched的依赖库，定义基本任务类型"
+readme = "../README.md"
 
 [features]
 
@@ -24,7 +26,7 @@ tls = []
 [dependencies]
 cfg-if = "1.0"
 log = "0.4"
-hal = { git = "https://github.com/rosy233333/vsched_hal.git" }
+hal = { package = "vsched_hal", version = "0.1" }
 config = { workspace = true }
 memory_addr = { version = "0.4" }
 scheduler = { workspace = true }

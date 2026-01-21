@@ -1,6 +1,6 @@
 [package]
-name = "config"
-version.workspace = true
+name = "vsched_config"
+version = "0.1.1"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -9,6 +9,8 @@ documentation.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
+description = "vsched的依赖库，用于配置常量"
+readme = "../README.md"
 
 [dependencies]
 cpumask = "0.1"

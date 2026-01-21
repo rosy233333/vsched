@@ -6,6 +6,9 @@ authors = ["Fangliang Zhao <1491657576@qq.com>"]
 description = "Shared Scheduler via vDSO"
 license.workspace = true
 homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+readme = "../README.md"
 
 [features]
 
@@ -14,7 +17,7 @@ sched-rr = ["base_task/sched-rr"]
 sched-cfs = ["base_task/sched-cfs"]
 
 [dependencies]
-hal = { git = "https://github.com/rosy233333/vsched_hal.git" }
+hal = { version = "0.1", package = "vsched_hal" }
 config = { workspace = true }
 base_task = { workspace = true }
-vdso_helper = { path = "../../vdso_crate_template/vdso_helper" }
+vdso_helper = "0.1"
