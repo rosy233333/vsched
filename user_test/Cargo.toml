@@ -25,7 +25,7 @@ task_management = { workspace = true }
 memmap2 = "0.9.5"
 elf_parser = { git = "https://github.com/rosy233333/elf_parser.git" }
 xmas-elf = "0.9.0"
-page_table_entry = { git = "https://github.com/rosy233333/page_table_entry.git" }
+page_table_entry = "0.5.7"
 libc = "0.2"
 include_bytes_aligned = "0.1.4"
 crate_interface = "0.1"

@@ -4,20 +4,11 @@ version = 4
 
 [[package]]
 name = "aarch64-cpu"
-version = "9.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac42a04a61c19fc8196dd728022a784baecc5d63d7e256c01ad1b3fbfab26287"
-dependencies = [
- "tock-registers 0.8.1",
-]
-
-[[package]]
-name = "aarch64-cpu"
 version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a21cd0131c25c438e19cd6a774adf7e3f64f7f4d723022882facc2dee0f8bc9"
 dependencies = [
- "tock-registers 0.9.0",
+ "tock-registers",
 ]
 
 [[package]]
@@ -42,10 +33,11 @@ dependencies = [
 
 [[package]]
 name = "axerrno"
-version = "0.1.0"
-source = "git+https://github.com/Starry-OS/axerrno.git#3713143115fac57d6a15f5390c7af03553c5c7ad"
+version = "0.2.0"
+source = "git+https://github.com/Starry-OS/axerrno.git#97b44e3f7380a95097353baa00016a0b98059246"
 dependencies = [
  "log",
+ "strum",
 ]
 
 [[package]]
@@ -120,6 +112,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "crate_interface"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15627e437dc14b22c0a7b8cfc7143fbab68aa6d740df2d695152b1dca58cdf17"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -143,13 +146,13 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 [[package]]
 name = "elf_parser"
 version = "0.1.0"
-source = "git+https://github.com/rosy233333/elf_parser.git#b6070347c783cc06be1f58b81b64eadbc66d401d"
+source = "git+https://github.com/rosy233333/elf_parser.git#585c69df01c752aaeed5bffa6893f9761091550b"
 dependencies = [
  "axerrno",
  "cfg-if",
  "log",
  "memory_addr 0.1.0",
- "page_table_entry 0.1.0",
+ "page_table_entry",
  "xmas-elf",
 ]
 
@@ -192,6 +195,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "heck"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -219,7 +228,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "307e6be468f3d6b6d895e191f63c11602e4e76575ecca68325d8c8dbebe2870e"
 dependencies = [
  "cfg-if",
- "crate_interface",
+ "crate_interface 0.1.4",
 ]
 
 [[package]]
@@ -242,7 +251,12 @@ checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
 name = "libvsched"
 version = "0.0.0"
 dependencies = [
+ "crate_interface 0.2.0",
+ "elf_parser",
+ "include_bytes_aligned",
+ "page_table_entry",
  "vsched",
+ "xmas-elf",
 ]
 
 [[package]]
@@ -299,22 +313,11 @@ checksum = "3d4054cba279515fa87761b101d857333ce06391dbe8f18a11347204a7111416"
 
 [[package]]
 name = "page_table_entry"
-version = "0.1.0"
-source = "git+https://github.com/rosy233333/page_table_entry.git#16dc9ff22b7695490f2421af7e9d3bf38bb12285"
-dependencies = [
- "aarch64-cpu 9.4.0",
- "bitflags 2.9.4",
- "memory_addr 0.1.0",
- "x86_64",
-]
-
-[[package]]
-name = "page_table_entry"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dda9891ec368fda90e4b2cc36592b4881073e25a339fe7e3eddd811f0cf6bf18"
 dependencies = [
- "aarch64-cpu 10.0.0",
+ "aarch64-cpu",
  "bitflags 2.9.4",
  "memory_addr 0.4.0",
  "x86_64",
@@ -431,6 +434,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -446,7 +470,7 @@ name = "task_management"
 version = "0.1.1"
 dependencies = [
  "cpumask",
- "crate_interface",
+ "crate_interface 0.1.4",
  "crossbeam",
  "kspin",
  "libvsched",
@@ -467,12 +491,6 @@ dependencies = [
 
 [[package]]
 name = "tock-registers"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "696941a0aee7e276a165a978b37918fd5d22c55c3d6bda197813070ca9c0f21c"
-
-[[package]]
-name = "tock-registers"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b9e2fdb3a1e862c0661768b7ed25390811df1947a8acbfbefe09b47078d93c4"
@@ -488,7 +506,7 @@ name = "user_test"
 version = "0.1.1"
 dependencies = [
  "build_vdso",
- "crate_interface",
+ "crate_interface 0.1.4",
  "elf_parser",
  "env_logger",
  "include_bytes_aligned",
@@ -496,7 +514,7 @@ dependencies = [
  "libvsched",
  "log",
  "memmap2",
- "page_table_entry 0.1.0",
+ "page_table_entry",
  "task_management",
  "vsched_base_task 0.1.0",
  "vsched_config 0.1.0",
@@ -595,11 +613,11 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2b4383b05f5161712f03988daf29592ff11499cf63bbe5b27ceea58030e9be6"
 dependencies = [
- "aarch64-cpu 10.0.0",
+ "aarch64-cpu",
  "cfg-if",
  "linkme",
  "memory_addr 0.4.0",
- "page_table_entry 0.5.7",
+ "page_table_entry",
  "riscv",
  "static_assertions",
  "x86",
