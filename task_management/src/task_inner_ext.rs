@@ -5,7 +5,7 @@
 
 extern crate alloc;
 
-use crate::wait_queue::WaitQueue;
+use crate::{task::TaskWaker, wait_queue::WaitQueue};
 use alloc::{boxed::Box, format, string::String, sync::Arc};
 use base_task::{TaskStack, TaskState};
 use config::{AxCpuMask, SMP};
@@ -14,6 +14,7 @@ use core::{
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicI32, Ordering},
+    task::Waker,
 };
 use crossbeam::atomic::AtomicCell;
 use log::debug;
@@ -294,4 +295,21 @@ pub unsafe fn base_to_arcext(base_ref: base_task::TaskRef) -> ArcTaskRef {
 pub fn arcext_to_base(ext_ref: ArcTaskRef) -> base_task::TaskRef {
     let ext = TaskRef::new(Arc::into_raw(ext_ref));
     ext_to_base(ext)
+}
+
+/// 将Arc<TaskWaker>转化为ArcTaskRef。
+///
+/// TaskWaker是一个包装了AxTask的结构体，因此可以直接使用`core::mem::transmute`转化。
+#[inline]
+pub fn arcwaker_to_arcext(waker: Arc<TaskWaker>) -> ArcTaskRef {
+    unsafe { core::mem::transmute(waker) }
+}
+
+/// 先将ArcTaskRef转化为Arc<TaskWaker>，再将其转化为Waker。
+///
+/// TaskWaker是一个包装了AxTask的结构体，因此可以直接使用`core::mem::transmute`转化。
+#[inline]
+pub fn arcext_to_waker(ext_ref: ArcTaskRef) -> Waker {
+    let task_waker: Arc<TaskWaker> = unsafe { core::mem::transmute(ext_ref) };
+    Waker::from(task_waker)
 }

@@ -258,8 +258,15 @@ impl<'a> Future for BlockedReschedFuture<'a> {
             // see `unblock_task()` for details.
 
             log::debug!("task block: {}", curr.id_name());
-            assert!(libvsched::resched_f(get_cpu_id()));
-            Poll::Pending
+            // assert!(libvsched::resched_f(get_cpu_id()));
+            if libvsched::resched_f(get_cpu_id()) {
+                // resched is needed
+                Poll::Pending
+            } else {
+                // resched is not needed, which means the task has been unblocked and is ready to run.
+                Poll::Ready(())
+            }
+            // Poll::Pending
         } else {
             Poll::Ready(())
         }

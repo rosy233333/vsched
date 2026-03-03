@@ -61,7 +61,7 @@
 
 线程 -> 线程：
 
-`vsched::api::yield_now` -> `vsched::sched::yield_current`: 先维护就绪队列，再调用`resched` -> `vsched::sched::resched` -> `vsched::sched::switch_to` -> `(*prev_ctx_ptr).switch_to(&*next_ctx_ptr)`: 真正的上下文切换过程
+`vsched::api::yield_now` -> `vsched::sched::yield_current`: 先修改本任务状态（`Running -> Ready`），维护就绪队列，再调用`resched` -> `vsched::sched::resched` -> `vsched::sched::switch_to`: 先修改下一任务状态（`Ready -> Running`），再进行上下文切换 -> `(*prev_ctx_ptr).switch_to(&*next_ctx_ptr)`: 真正的上下文切换过程
 
 线程 -> 协程：
 
@@ -69,23 +69,34 @@
 
 协程 -> 线程：
 
-`task_management::sched::yield_now_f` -> `YieldFuture::new().await` -> `task_management::sched::YieldFuture::poll`: 先调用`vsched::api::yield_f`仅维护就绪队列和任务状态不执行实际切换，再返回`poll::Pending`至`task_management::task::coroutine_schedule` -> `task_management::task::coroutine_schedule`: 先通过`vsched::api::current`获取下一个要执行的任务，再通过`(*prev_ctx_ptr).switch_to(&*next_ctx_ptr)`执行上下文切换。
+`task_management::sched::yield_now_f` -> `YieldFuture::new().await` -> `task_management::sched::YieldFuture::poll`: 先调用`vsched::api::yield_f`仅维护就绪队列、本任务状态（`Running -> Ready`）和下一任务状态（`Ready -> Running`）不执行实际切换，再返回`poll::Pending`至`task_management::task::coroutine_schedule` -> `task_management::task::coroutine_schedule`: 先通过`vsched::api::current`获取下一个要执行的任务，再调用`recycle_stack_of_coroutine`切换栈，再通过`(*prev_ctx_ptr).switch_to(&*next_ctx_ptr)`执行上下文切换。
 
 协程 -> 协程：
 
-同上，但是在`task_management::task::coroutine_schedule`函数中，在上下文切换前，将自己已用完的栈传递给下一个协程。并且，不进行线程式的上下文切换，而是直接回到循环开始，运行下一个协程的`Future::poll`。
+同上，但是在`task_management::task::coroutine_schedule`函数中，在上下文切换前，调用`next_stack.replace(stack)`将自己已用完的栈传递给下一个协程。并且，不进行线程式的上下文切换，而是直接回到循环开始，运行下一个协程的`Future::poll`。
 
-### 任务的阻塞
+### 任务的阻塞和唤醒
 
 线程的阻塞：
 
-`task_management::wait_queue::WaitQueue::wait` -> `task_management::sched::blocked_resched`: 先将任务加入阻塞队列，再调用`vsched_apis::resched` -> `vsched::api::resched` -> `vsched::sched::resched`，之后同任务切换过程
+`task_management::wait_queue::WaitQueue::wait` -> `task_management::sched::blocked_resched`: 先修改任务状态（`Running -> Blocked`），再将任务加入阻塞队列，再调用`vsched_apis::resched` -> `vsched::api::resched` -> `vsched::sched::resched`，之后同任务切换过程
 
 协程的阻塞：
 
-`task_management::wait_queue::WaitQueue::wait` -> `BlockedReschedFuture::new(self).await` -> `task_management::sched::BlockedReschedFuture::poll`: 先将任务加入阻塞队列，之后调用`vsched_apis::resched_f`仅维护就绪队列不执行实际切换，之后的切换过程同协程的切换。
+`task_management::wait_queue::WaitQueue::wait` -> `BlockedReschedFuture::new(self).await` -> `task_management::sched::BlockedReschedFuture::poll`: 先修改任务状态（`Running -> Blocked`），再将任务加入阻塞队列，之后调用`vsched_apis::resched_f`仅修改下一任务状态（`Ready -> Running`）、维护就绪队列不执行实际切换，之后返回`poll::Pending`至`task_management::task::coroutine_schedule`，之后同协程的切换。
 
 （协程的阻塞没有使用`Waker`相关机制，且`task_management::task::coroutine_schedule`函数中使用的`Waker`也是`Waker::noop`，因此该协程调度器不支持基于`Waker`的协程阻塞。）
+
+任务的唤醒：
+
+`task_management::wait_queue::WaitQueue::notify_*` -> `task_management::wait_queue::unblock_one_task` -> `vsched::sched::unblock_task`: 如果任务状态为`Blocked`，则改为`Ready`并放回就绪队列。
+
+如果被阻塞的任务在返回前即被唤醒：
+
+被唤醒的`TaskRef`（即指向还未退出的阻塞任务）被放入（相同核心的）调度队列且状态设置为`Ready`。
+
+- 若阻塞的任务为线程，则`vsched::sched::resched`不会对上一任务的状态进行判断，被设为`Ready`并无问题。
+- 若阻塞的任务为协程，则返回`task_management::task::coroutine_schedule`后，也不会对上一任务的状态进行判断，被设为`Ready`并无问题。
 
 ## 测试
 

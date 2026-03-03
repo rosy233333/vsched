@@ -232,6 +232,8 @@ pub(crate) fn take_prev_task_and_clear_on_cpu(percpu: &'static PerCPU) -> TaskRe
 /// Pick the next task to run and switch to it.
 /// This function is only used in `YieldFuture`, `ExitFuture`,
 /// `SleepUntilFuture` and `BlockedReschedFuture`.
+/// 
+/// The return value indicates whether resched is needed. 
 pub(crate) fn resched_f(percpu: &'static PerCPU) -> bool {
     let next_task = percpu.scheduler.pick_next_task().unwrap_or_else(|| 
         // Safety: IRQs must be disabled at this time.

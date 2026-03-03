@@ -9,10 +9,15 @@ use core::{
 use crate::{
     interface::get_cpu_id,
     sched::{exit_f, yield_now},
-    task_inner_ext::{ArcTaskRef, AxTask, TaskInner, TaskRef, base_to_ext},
+    task_inner_ext::{
+        ArcTaskRef, AxTask, TaskInner, TaskRef, arcext_to_base, arcext_to_waker,
+        arcwaker_to_arcext, base_to_arcext, base_to_ext,
+    },
     wait_queue::WaitQueue,
 };
-use alloc::{boxed::Box, collections::vec_deque::VecDeque, string::String, sync::Arc, vec::Vec};
+use alloc::{
+    boxed::Box, collections::vec_deque::VecDeque, string::String, sync::Arc, task::Wake, vec::Vec,
+};
 use base_task::{TaskStack, TaskState};
 use config::SMP;
 use kspin::SpinNoIrq;
@@ -124,9 +129,11 @@ fn coroutine_schedule() {
             let _prev_task_to_drop = unsafe { ManuallyDrop::into_inner(prev_task.into_arc()) };
         }
         drop(prev_task);
-        let waker = Waker::noop();
-        let mut cx = Context::from_waker(waker);
+        // let waker = Waker::noop();
+        // let mut cx = Context::from_waker(waker);
         let curr = unsafe { base_to_ext(libvsched::current(get_cpu_id())) };
+        let waker = arcext_to_waker(ManuallyDrop::into_inner(curr.into_arc().clone())); // 此处into_arc返回`ManuallyDrop<Arc<AxTask>>`，先clone再into_inner得到`Arc<AxTask>`，因此原有的`Arc<AxTask>`不会被释放。
+        let mut cx = Context::from_waker(&waker);
 
         let fut = curr
             .inner()
@@ -134,8 +141,25 @@ fn coroutine_schedule() {
             .as_mut()
             .expect("The task should be a coroutine");
         let _res = fut.as_mut().poll(&mut cx);
-        // 该行要求协程在返回Pending或完全结束时，都需要将state从Running切换到其它状态（Ready, Blocked, Exited）。
-        assert!(!curr.is_running(), "{} is still running", curr.id_name());
+        // // 该行要求协程在返回Pending或完全结束时，都需要将state从Running切换到其它状态（Ready, Blocked, Exited）。
+        // assert!(!curr.is_running(), "{} is still running", curr.id_name());
+
+        // 协程返回时的状态与协程操作的关系：
+        //
+        // - Ready: 协程让出，或者阻塞后（在返回前）被唤醒。
+        // - Blocked: 协程阻塞在调度队列上。
+        // - Exited: 协程结束。
+        // - Running: 协程通过`await`一个`Future`而阻塞，因为这些`Future`不会主动维护协程的状态。
+        //
+        // 对Exited任务的回收下一任务即将运行时进行，因此此处只需特殊处理Running的情况。
+        if curr.is_running() {
+            // 设置当前任务状态
+            curr.set_state(TaskState::Blocked);
+            // 当前任务还未改变，因此在此处调用`libvsched::resched_f`可以正确设置当前任务和上一任务。
+            // 后续代码可以正确处理下一任务和本任务相同的情况，因此此处可以不管`resched_f`的返回值。
+            libvsched::resched_f(get_cpu_id());
+        }
+
         let prev_task = curr;
         let stack = unsafe { &mut *prev_task.kernel_stack() }
             .take()
@@ -154,5 +178,25 @@ fn coroutine_schedule() {
                 panic!("Should never reach here.");
             }
         }
+    }
+}
+
+/// 根据AxTask创建的Waker。
+///
+/// 在使用时，需要通过指针转化，在引用计数不变的情况下将ArcTaskRef与Arc<TaskWaker>相互转化。
+#[repr(transparent)]
+pub struct TaskWaker {
+    task: AxTask,
+}
+
+impl Wake for TaskWaker {
+    fn wake(self: Arc<Self>) {
+        // 修改任务状态、将任务放入就绪队列
+        libvsched::unblock_task(
+            arcext_to_base(arcwaker_to_arcext(self)),
+            true,
+            get_cpu_id(),
+            get_cpu_id(),
+        );
     }
 }

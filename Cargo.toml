@@ -10,7 +10,6 @@ members = [
     "utils",
     "vsched_apis",
     "task_management",
-    "build_test",
 ]
 
 exclude = ["output/vdso_wrapper", "output/libvsched"]
