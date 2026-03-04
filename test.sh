@@ -14,6 +14,13 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+ARCH=riscv64 LOG=warn UTEST=waker_wait SMP=1 make utest
+
+if [ $? -ne 0 ]; then
+    echo "[test script] waker_wait test failed!"
+    exit 1
+fi
+
 ARCH=riscv64 LOG=warn UTEST=all SMP=4 make utest
 
 if [ $? -ne 0 ]; then
