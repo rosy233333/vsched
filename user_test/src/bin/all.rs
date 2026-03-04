@@ -10,8 +10,7 @@ const TASK_NUM: usize = 10;
 
 fn main() {
     env_logger::init();
-    let vsched_map = map_vsched().unwrap();
-    core::mem::forget(vsched_map);
+    libvsched::load_and_init();
     static BOOT_COUNT: AtomicUsize = AtomicUsize::new(1);
     for i in 0..(config::SMP - 1) {
         println!("spawn kernel thread {}", i);

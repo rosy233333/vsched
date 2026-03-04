@@ -4,8 +4,7 @@ use task_management::{task_api::*, waker_queue::WakerQueue};
 use user_test::*;
 fn main() {
     env_logger::init();
-    let vsched_map = map_vsched().unwrap();
-    core::mem::forget(vsched_map);
+    libvsched::load_and_init();
     init_cpu_id();
     init_vsched();
 

@@ -3,8 +3,7 @@ use task_management::{task::run_idle, task_api::*};
 use user_test::*;
 fn main() {
     env_logger::init();
-    let vsched_map = map_vsched().unwrap();
-    core::mem::forget(vsched_map);
+    libvsched::load_and_init();
     static BOOT_COUNT: AtomicUsize = AtomicUsize::new(1);
     let _thread_handle = std::thread::spawn(|| {
         init_cpu_id();
