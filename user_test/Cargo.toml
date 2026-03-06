@@ -31,4 +31,4 @@ include_bytes_aligned = "0.1.4"
 crate_interface = "0.1"
 
 [build-dependencies]
-build_vdso = { path = "../../vdso_crate_template/build_vdso" }
+build_vdso = { git = "https://github.com/rosy233333/vdso_crate_template.git" }
